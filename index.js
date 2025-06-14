@@ -514,18 +514,23 @@ const init = async () => {
         // Load extension HTML
         await loadExtensionHTML();
         
-        // Enable extension if it was enabled previously
-        if (extensionSettings.enabled) {
-            onExtensionEnabled();
-        }
-        
-        // Add debugging for function availability
-        if (extensionSettings.debug) {
-            console.log('Tag Autocompletion: Available window functions:', Object.keys(window).filter(key => 
-                typeof window[key] === 'function' && 
-                (key.toLowerCase().includes('prompt') || key.toLowerCase().includes('picture') || key.toLowerCase().includes('generate'))
-            ));
-        }
+        // Delay hook setup to ensure functions are available
+        setTimeout(() => {
+            // Add debugging for function availability
+            if (extensionSettings.debug) {
+                console.log('Tag Autocompletion: Available window functions:', Object.keys(window).filter(key => 
+                    typeof window[key] === 'function' && 
+                    (key.toLowerCase().includes('prompt') || key.toLowerCase().includes('picture') || key.toLowerCase().includes('generate'))
+                ));
+                console.log('Tag Autocompletion: getPrompt type:', typeof window.getPrompt);
+                console.log('Tag Autocompletion: generatePicture type:', typeof window.generatePicture);
+            }
+            
+            // Enable extension if it was enabled previously
+            if (extensionSettings.enabled) {
+                onExtensionEnabled();
+            }
+        }, 1000); // Wait 1 second for all functions to be loaded
         
         console.log('Tag Autocompletion extension loaded successfully');
     } catch (error) {
