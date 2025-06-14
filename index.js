@@ -1,10 +1,8 @@
 // Tag Autocompletion Extension for SillyTavern
 // Implements Danbooru tag validation and correction for improved LLM-generated image prompts
 
-import { extension_settings, getContext } from '../../extensions.js';
-import { saveSettingsDebounced, generateQuietPrompt, getLastUsableMessage } from '../../../script.js';
-
 const extensionName = 'SillyTavern-Tag-Autocompletion';
+const globalContext = SillyTavern.getContext();
 
 // Extension settings will be initialized in loadSettings()
 let extensionSettings = {};
@@ -18,15 +16,15 @@ const defaultSettings = {
 
 // Initialize extension settings
 function loadSettings() {
-    extension_settings[extensionName] = Object.assign({}, defaultSettings, extension_settings[extensionName]);
-    extensionSettings = extension_settings[extensionName];
-    saveSettingsDebounced();
+    globalContext.extensionSettings[extensionName] = Object.assign({}, defaultSettings, globalContext.extensionSettings[extensionName]);
+    extensionSettings = globalContext.extensionSettings[extensionName];
+    globalContext.saveSettingsDebounced();
 }
 
 // Save settings
 function saveSettings() {
-    extension_settings[extensionName] = extensionSettings;
-    saveSettingsDebounced();
+    globalContext.extensionSettings[extensionName] = extensionSettings;
+    globalContext.saveSettingsDebounced();
 }
 
 // Generation mode constants (confirmed from SillyTavern code)
@@ -124,7 +122,7 @@ async function selectBestTagWithContext(candidates, originalTag, generationType)
 
 // Tag selection for character/face generation (rich context)
 async function selectBestTagForCharacter(candidates, originalTag) {
-    const context = getContext();
+    const context = globalContext;
     const character = context.characters[context.characterId];
     
     if (!character) {
@@ -139,7 +137,7 @@ Original tag: "${originalTag}"
 
 Return only the best tag.`;
 
-    const result = await generateQuietPrompt(selectionPrompt, false, false);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
     // Find exact match in candidates (case insensitive)
@@ -149,7 +147,7 @@ Return only the best tag.`;
 
 // Tag selection for last message generation (limited context)
 async function selectBestTagForLastMessage(candidates, originalTag) {
-    const lastMessage = getLastUsableMessage();
+    const lastMessage = globalContext.getLastUsableMessage();
     
     if (!lastMessage || !lastMessage.mes) {
         return candidates[0];
@@ -162,7 +160,7 @@ Original tag: "${originalTag}"
 
 Return only the best tag.`;
 
-    const result = await generateQuietPrompt(selectionPrompt, false, false);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
     // Find exact match in candidates (case insensitive)
@@ -172,7 +170,7 @@ Return only the best tag.`;
 
 // Tag selection for scenario generation (medium context)
 async function selectBestTagForScenario(candidates, originalTag) {
-    const context = getContext();
+    const context = globalContext;
     const recentMessages = context.chat.slice(-5);
     
     if (!recentMessages || recentMessages.length === 0) {
@@ -192,7 +190,7 @@ Original tag: "${originalTag}"
 
 Return only the best tag.`;
 
-    const result = await generateQuietPrompt(selectionPrompt, false, false);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
     // Find exact match in candidates (case insensitive)
@@ -206,7 +204,7 @@ async function selectBestTagGeneric(candidates, originalTag) {
 
 Return only the best tag.`;
 
-    const result = await generateQuietPrompt(selectionPrompt, false, false);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
     // Find exact match in candidates (case insensitive)
