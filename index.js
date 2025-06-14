@@ -349,6 +349,46 @@ function onDebugInput() {
     saveSettings();
 }
 
+// Test connection function
+async function testConnection() {
+    const button = $('#tag_autocomplete_test_btn');
+    const status = $('#tag_autocomplete_test_status');
+    
+    button.prop('disabled', true).text('Testing...');
+    status.removeClass('success_message warning_message').text('');
+    
+    try {
+        const response = await fetch(`${extensionSettings.apiEndpoint}/search_tag`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                query: "blonde_hair",
+                limit: 5
+            }),
+            signal: AbortSignal.timeout(extensionSettings.timeout)
+        });
+
+        if (response.ok) {
+            const data = await response.json();
+            status.addClass('success_message').text(`✓ Connection successful! Found ${data.candidates ? data.candidates.length : 0} candidates.`);
+        } else {
+            status.addClass('warning_message').text(`✗ API returned error: ${response.status} ${response.statusText}`);
+        }
+    } catch (error) {
+        if (error.name === 'TimeoutError') {
+            status.addClass('warning_message').text('✗ Connection timeout - check if the API server is running');
+        } else if (error.name === 'TypeError' && error.message.includes('fetch')) {
+            status.addClass('warning_message').text('✗ Cannot connect to API - check endpoint URL and server status');
+        } else {
+            status.addClass('warning_message').text(`✗ Connection failed: ${error.message}`);
+        }
+    } finally {
+        button.prop('disabled', false).text('Test Connection');
+    }
+}
+
 // Load the extension settings HTML
 async function loadExtensionHTML() {
     const settingsHtml = `
@@ -383,6 +423,12 @@ async function loadExtensionHTML() {
                         <small>Debug Mode</small>
                     </label>
                 </div>
+                <div class="flex-container">
+                    <button id="tag_autocomplete_test_btn" class="menu_button" type="button">Test Connection</button>
+                </div>
+                <div class="flex-container">
+                    <small id="tag_autocomplete_test_status"></small>
+                </div>
                 <small class="notes">
                     <strong>Note:</strong> This extension requires a running Tag Autocompletion API server. 
                     The extension will automatically correct Danbooru tags in image generation prompts using context-aware selection.
@@ -399,6 +445,7 @@ async function loadExtensionHTML() {
     $('#tag_autocomplete_api_endpoint').on('input', onApiEndpointInput);
     $('#tag_autocomplete_timeout').on('input', onTimeoutInput);
     $('#tag_autocomplete_debug').on('input', onDebugInput);
+    $('#tag_autocomplete_test_btn').on('click', testConnection);
     
     // Load current settings into UI
     $('#tag_autocomplete_enabled').prop('checked', extensionSettings.enabled);
