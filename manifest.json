@@ -1,0 +1,12 @@
+{
+    "display_name": "Tag Autocompletion",
+    "loading_order": 250,
+    "requires": [],
+    "optional": [],
+    "js": "index.js",
+    "css": "style.css",
+    "author": "SillyTavern Community",
+    "version": "1.0.0",
+    "homePage": "https://github.com/SillyTavern/SillyTavern-Tag-Autocompletion",
+    "description": "Danbooru tag validation and correction API for improved LLM-generated image prompts"
+}
