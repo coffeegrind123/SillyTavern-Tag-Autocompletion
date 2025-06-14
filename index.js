@@ -215,7 +215,16 @@ Return only the best tag.`;
 // Main tag correction function
 async function correctTagsWithContext(prompt, generationType) {
     if (!extensionSettings.enabled) {
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: Extension disabled, returning original prompt');
+        }
         return prompt;
+    }
+
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Starting tag correction...');
+        console.log('Original prompt:', prompt);
+        console.log('Generation type:', generationType);
     }
 
     // Split prompt into individual tags
@@ -227,6 +236,7 @@ async function correctTagsWithContext(prompt, generationType) {
     
     if (extensionSettings.debug) {
         console.log(`Tag correction: ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
+        console.log('Tags to process:', tags);
     }
 
     // Process each tag individually
@@ -267,39 +277,71 @@ async function correctTagsWithContext(prompt, generationType) {
     return result;
 }
 
-// Hook into SillyTavern's getPrompt function (where both prompt and generationType are available)
+// Hook into SillyTavern's image generation pipeline
 let originalGetPrompt = null;
+let originalGeneratePicture = null;
 
-function hookGetPrompt() {
-    if (originalGetPrompt) {
-        return; // Already hooked
+function hookImageGeneration() {
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Setting up hooks...');
+        console.log('Available functions:', {
+            getPrompt: typeof window.getPrompt,
+            generatePicture: typeof window.generatePicture,
+            processReply: typeof window.processReply
+        });
     }
 
-    originalGetPrompt = window.getPrompt;
-    window.getPrompt = async function(generationType, message, trigger, quietPrompt, combineNegatives) {
-        const originalPrompt = await originalGetPrompt.call(this, generationType, message, trigger, quietPrompt, combineNegatives);
-        
-        // Only process if extension is enabled and this is an image generation
-        if (extensionSettings.enabled && originalPrompt && typeof originalPrompt === 'string') {
-            try {
-                return await correctTagsWithContext(originalPrompt, generationType);
-            } catch (error) {
-                if (extensionSettings.debug) {
-                    console.warn('Tag correction failed:', error);
-                }
-                return originalPrompt; // Always fallback to original
+    // Try to hook getPrompt if it exists
+    if (typeof window.getPrompt === 'function' && !originalGetPrompt) {
+        originalGetPrompt = window.getPrompt;
+        window.getPrompt = async function(generationType, message, trigger, quietPrompt, combineNegatives) {
+            if (extensionSettings.debug) {
+                console.log('Tag Autocompletion: getPrompt called with generationType:', generationType);
             }
-        }
+            
+            const originalPrompt = await originalGetPrompt.call(this, generationType, message, trigger, quietPrompt, combineNegatives);
+            
+            // Only process if extension is enabled and this looks like image generation
+            if (extensionSettings.enabled && originalPrompt && typeof originalPrompt === 'string') {
+                try {
+                    if (extensionSettings.debug) {
+                        console.log('Tag Autocompletion: Processing prompt:', originalPrompt.slice(0, 100) + '...');
+                    }
+                    return await correctTagsWithContext(originalPrompt, generationType);
+                } catch (error) {
+                    if (extensionSettings.debug) {
+                        console.warn('Tag correction failed:', error);
+                    }
+                    return originalPrompt;
+                }
+            }
+            
+            return originalPrompt;
+        };
         
-        return originalPrompt;
-    };
-    
-    if (extensionSettings.debug) {
-        console.log('Tag Autocompletion: Hooked into getPrompt function');
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: Hooked into getPrompt function');
+        }
+    }
+
+    // Also try to hook generatePicture for image generation
+    if (typeof window.generatePicture === 'function' && !originalGeneratePicture) {
+        originalGeneratePicture = window.generatePicture;
+        window.generatePicture = async function(generationType, message, trigger, quiet, combineNegatives) {
+            if (extensionSettings.debug) {
+                console.log('Tag Autocompletion: generatePicture called with generationType:', generationType);
+            }
+            
+            return await originalGeneratePicture.call(this, generationType, message, trigger, quiet, combineNegatives);
+        };
+        
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: Hooked into generatePicture function');
+        }
     }
 }
 
-function unhookGetPrompt() {
+function unhookImageGeneration() {
     if (originalGetPrompt) {
         window.getPrompt = originalGetPrompt;
         originalGetPrompt = null;
@@ -308,15 +350,24 @@ function unhookGetPrompt() {
             console.log('Tag Autocompletion: Unhooked from getPrompt function');
         }
     }
+    
+    if (originalGeneratePicture) {
+        window.generatePicture = originalGeneratePicture;
+        originalGeneratePicture = null;
+        
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: Unhooked from generatePicture function');
+        }
+    }
 }
 
 // Extension lifecycle
 function onExtensionEnabled() {
-    hookGetPrompt();
+    hookImageGeneration();
 }
 
 function onExtensionDisabled() {
-    unhookGetPrompt();
+    unhookImageGeneration();
 }
 
 // Settings UI handlers
@@ -466,6 +517,14 @@ const init = async () => {
         // Enable extension if it was enabled previously
         if (extensionSettings.enabled) {
             onExtensionEnabled();
+        }
+        
+        // Add debugging for function availability
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: Available window functions:', Object.keys(window).filter(key => 
+                typeof window[key] === 'function' && 
+                (key.toLowerCase().includes('prompt') || key.toLowerCase().includes('picture') || key.toLowerCase().includes('generate'))
+            ));
         }
         
         console.log('Tag Autocompletion extension loaded successfully');
