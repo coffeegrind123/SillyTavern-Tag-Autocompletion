@@ -284,61 +284,104 @@ let originalGeneratePicture = null;
 function hookImageGeneration() {
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Setting up hooks...');
-        console.log('Available functions:', {
-            getPrompt: typeof window.getPrompt,
-            generatePicture: typeof window.generatePicture,
-            processReply: typeof window.processReply
-        });
     }
 
-    // Try to hook getPrompt if it exists
-    if (typeof window.getPrompt === 'function' && !originalGetPrompt) {
-        originalGetPrompt = window.getPrompt;
-        window.getPrompt = async function(generationType, message, trigger, quietPrompt, combineNegatives) {
-            if (extensionSettings.debug) {
-                console.log('Tag Autocompletion: getPrompt called with generationType:', generationType);
-            }
-            
-            const originalPrompt = await originalGetPrompt.call(this, generationType, message, trigger, quietPrompt, combineNegatives);
-            
-            // Only process if extension is enabled and this looks like image generation
-            if (extensionSettings.enabled && originalPrompt && typeof originalPrompt === 'string') {
-                try {
+    // Wait for the Stable Diffusion extension to be loaded
+    setTimeout(() => {
+        // Look for the SD extension's getPrompt function
+        const sdModules = Object.keys(window).filter(key => 
+            window[key] && 
+            typeof window[key] === 'object' && 
+            typeof window[key].getPrompt === 'function'
+        );
+
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: Found SD modules with getPrompt:', sdModules);
+        }
+
+        // Try to find and hook the SD extension's getPrompt function
+        let foundHook = false;
+        for (const moduleKey of sdModules) {
+            const module = window[moduleKey];
+            if (module.getPrompt && !originalGetPrompt) {
+                originalGetPrompt = module.getPrompt;
+                module.getPrompt = async function(generationType, message, trigger, quietPrompt, combineNegatives) {
                     if (extensionSettings.debug) {
-                        console.log('Tag Autocompletion: Processing prompt:', originalPrompt.slice(0, 100) + '...');
+                        console.log('Tag Autocompletion: SD getPrompt called with generationType:', generationType);
                     }
-                    return await correctTagsWithContext(originalPrompt, generationType);
-                } catch (error) {
-                    if (extensionSettings.debug) {
-                        console.warn('Tag correction failed:', error);
+                    
+                    const originalPrompt = await originalGetPrompt.call(this, generationType, message, trigger, quietPrompt, combineNegatives);
+                    
+                    if (extensionSettings.enabled && originalPrompt && typeof originalPrompt === 'string') {
+                        try {
+                            if (extensionSettings.debug) {
+                                console.log('Tag Autocompletion: Processing SD prompt:', originalPrompt.slice(0, 100) + '...');
+                            }
+                            const corrected = await correctTagsWithContext(originalPrompt, generationType);
+                            if (extensionSettings.debug) {
+                                console.log('Tag Autocompletion: Corrected SD prompt:', corrected.slice(0, 100) + '...');
+                            }
+                            return corrected;
+                        } catch (error) {
+                            if (extensionSettings.debug) {
+                                console.warn('Tag Autocompletion: Error during correction:', error);
+                            }
+                            return originalPrompt;
+                        }
                     }
+                    
                     return originalPrompt;
+                };
+                
+                foundHook = true;
+                if (extensionSettings.debug) {
+                    console.log('Tag Autocompletion: Successfully hooked SD getPrompt in module:', moduleKey);
                 }
+                break;
             }
-            
-            return originalPrompt;
-        };
-        
-        if (extensionSettings.debug) {
-            console.log('Tag Autocompletion: Hooked into getPrompt function');
         }
-    }
 
-    // Also try to hook generatePicture for image generation
-    if (typeof window.generatePicture === 'function' && !originalGeneratePicture) {
-        originalGeneratePicture = window.generatePicture;
-        window.generatePicture = async function(generationType, message, trigger, quiet, combineNegatives) {
-            if (extensionSettings.debug) {
-                console.log('Tag Autocompletion: generatePicture called with generationType:', generationType);
-            }
+        // Alternative approach: Hook the global getPrompt if it becomes available
+        if (!foundHook && typeof window.getPrompt === 'function') {
+            originalGetPrompt = window.getPrompt;
+            window.getPrompt = async function(generationType, message, trigger, quietPrompt, combineNegatives) {
+                if (extensionSettings.debug) {
+                    console.log('Tag Autocompletion: Global getPrompt called with generationType:', generationType);
+                }
+                
+                const originalPrompt = await originalGetPrompt.call(this, generationType, message, trigger, quietPrompt, combineNegatives);
+                
+                if (extensionSettings.enabled && originalPrompt && typeof originalPrompt === 'string') {
+                    try {
+                        if (extensionSettings.debug) {
+                            console.log('Tag Autocompletion: Processing global prompt:', originalPrompt.slice(0, 100) + '...');
+                        }
+                        const corrected = await correctTagsWithContext(originalPrompt, generationType);
+                        if (extensionSettings.debug) {
+                            console.log('Tag Autocompletion: Corrected global prompt:', corrected.slice(0, 100) + '...');
+                        }
+                        return corrected;
+                    } catch (error) {
+                        if (extensionSettings.debug) {
+                            console.warn('Tag Autocompletion: Error during correction:', error);
+                        }
+                        return originalPrompt;
+                    }
+                }
+                
+                return originalPrompt;
+            };
             
-            return await originalGeneratePicture.call(this, generationType, message, trigger, quiet, combineNegatives);
-        };
-        
-        if (extensionSettings.debug) {
-            console.log('Tag Autocompletion: Hooked into generatePicture function');
+            foundHook = true;
+            if (extensionSettings.debug) {
+                console.log('Tag Autocompletion: Successfully hooked global getPrompt');
+            }
         }
-    }
+
+        if (!foundHook && extensionSettings.debug) {
+            console.warn('Tag Autocompletion: Could not find getPrompt function to hook');
+        }
+    }, 2000); // Wait 2 seconds for SD extension to load
 }
 
 function unhookImageGeneration() {
