@@ -1,8 +1,10 @@
 // Tag Autocompletion Extension for SillyTavern
 // Implements Danbooru tag validation and correction for improved LLM-generated image prompts
 
+import { extension_settings, getContext } from '../../extensions.js';
+import { saveSettingsDebounced, generateQuietPrompt, getLastUsableMessage } from '../../../script.js';
+
 const extensionName = 'SillyTavern-Tag-Autocompletion';
-const extensionFolderPath = `scripts/extensions/third-party/${extensionName}`;
 
 // Extension settings will be initialized in loadSettings()
 let extensionSettings = {};
@@ -16,12 +18,6 @@ const defaultSettings = {
 
 // Initialize extension settings
 function loadSettings() {
-    // Ensure extension_settings exists and has our extension key
-    if (typeof extension_settings === 'undefined') {
-        console.error('Tag Autocompletion: extension_settings not available');
-        return;
-    }
-    
     extension_settings[extensionName] = Object.assign({}, defaultSettings, extension_settings[extensionName]);
     extensionSettings = extension_settings[extensionName];
     saveSettingsDebounced();
@@ -29,11 +25,6 @@ function loadSettings() {
 
 // Save settings
 function saveSettings() {
-    if (typeof extension_settings === 'undefined') {
-        console.error('Tag Autocompletion: extension_settings not available');
-        return;
-    }
-    
     extension_settings[extensionName] = extensionSettings;
     saveSettingsDebounced();
 }
@@ -419,25 +410,7 @@ async function loadExtensionHTML() {
 }
 
 // Extension initialization
-jQuery(async () => {
-    // Wait for SillyTavern to be fully loaded
-    if (typeof extension_settings === 'undefined') {
-        console.log('Tag Autocompletion: Waiting for SillyTavern to load...');
-        // Wait and retry
-        setTimeout(() => {
-            if (typeof extension_settings !== 'undefined') {
-                initializeExtension();
-            } else {
-                console.error('Tag Autocompletion: SillyTavern extension system not available');
-            }
-        }, 1000);
-        return;
-    }
-    
-    initializeExtension();
-});
-
-async function initializeExtension() {
+const init = async () => {
     try {
         // Load settings
         loadSettings();
@@ -454,4 +427,7 @@ async function initializeExtension() {
     } catch (error) {
         console.error('Tag Autocompletion: Failed to initialize extension:', error);
     }
-}
+};
+
+// Initialize the extension
+await init();
