@@ -335,7 +335,8 @@ Return the best tag or tags (comma-separated if multiple).`;
 
 // Tag selection for last message generation (limited context)
 async function selectBestTagForLastMessage(candidates, originalTag) {
-    const lastMessage = globalContext.getLastUsableMessage();
+    const context = globalContext;
+    const lastMessage = context.chat && context.chat.length > 0 ? context.chat[context.chat.length - 1] : null;
     
     if (!lastMessage || !lastMessage.mes) {
         return candidates[0];
@@ -407,9 +408,13 @@ IMPORTANT GUIDELINES:
 - Select the tag(s) that preserve the most meaning from the original
 - Do NOT choose tags that add descriptors not in the original
 - Prefer tags that maintain specific details and modifiers
-- Avoid completely unrelated or nonsensical matches
-- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
-- Choose based on semantic similarity, not just word overlap
+- Avoid completely unrelated or nonsensical matches (ignore character names, anime references, etc.)
+- For compound terms like "padded_room", you SHOULD return multiple relevant tags like "padded walls, room" rather than unrelated items
+- Choose based on semantic similarity to the ORIGINAL CONCEPT, not just word overlap
+
+EXAMPLES:
+- "padded_room" with candidates ["padded jacket", "padded walls", "room"] → "padded walls, room"
+- "steel_chair" with candidates ["steel", "chair", "dental chair"] → "steel, chair" or "dental chair"
 
 Return the best tag or tags (comma-separated if multiple).`;
 
