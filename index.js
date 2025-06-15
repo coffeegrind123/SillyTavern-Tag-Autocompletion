@@ -214,16 +214,19 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     // Try original search first
     let result = await searchTagCandidates(originalTag, limit);
     
-    // Skip LLM evaluation if we have exact/near-exact matches
+    // Skip LLM evaluation if we have exact/near-exact matches and return only the exact match
     if (result.candidates && result.candidates.length > 0) {
         const normalizedOriginal = originalTag.toLowerCase().replace(/[_\s]/g, '');
-        const hasExactMatch = result.candidates.some(candidate => 
+        const exactMatch = result.candidates.find(candidate => 
             candidate.toLowerCase().replace(/[_\s]/g, '') === normalizedOriginal
         );
         
-        if (hasExactMatch) {
-            console.log(`[TAG-AUTO] Found exact match for "${originalTag}" - skipping LLM evaluation`);
-            return result;
+        if (exactMatch) {
+            console.log(`[TAG-AUTO] Found exact match for "${originalTag}" - returning only exact match: "${exactMatch}"`);
+            return {
+                query: originalTag,
+                candidates: [exactMatch]
+            };
         }
     }
     
