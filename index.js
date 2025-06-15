@@ -398,13 +398,12 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-IMPORTANT GUIDELINES:
-- Preserve the original tag's meaning and detail level
-- Do NOT add descriptors not in the original tag
-- Keep specific modifiers when possible (e.g., "led_lighting" vs just "lighting")
-- Avoid nonsensical or unrelated suggestions
-- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
-- Choose the most semantically similar option(s)
+For compound tags like "${originalTag}", look for candidates that represent each component:
+- Find tags representing "${originalTag.split('_')[0]}" 
+- Find tags representing "${originalTag.split('_')[1]}"
+- If both components are available, combine them to preserve the full meaning
+
+Focus on reconstructing the original tag's complete meaning using the available candidates.
 
 Return the best tag or tags (comma-separated if multiple).`;
 
