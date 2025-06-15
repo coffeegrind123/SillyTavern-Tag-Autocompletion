@@ -14,7 +14,7 @@ diff --git a/public/scripts/extensions/stable-diffusion/index.js b/public/script
 index dc1bf4cb7..3e72c0b4c 100644
 --- a/public/scripts/extensions/stable-diffusion/index.js
 +++ b/public/scripts/extensions/stable-diffusion/index.js
-@@ -2465,9 +2465,15 @@ async function generatePicture(initiator, args, trigger, message, callback) {
+@@ -2465,9 +2465,14 @@ async function generatePicture(initiator, args, trigger, message, callback) {
          const combineNegatives = (prefix) => { negativePromptPrefix = combinePrefixes(negativePromptPrefix, prefix); };
  
          // generate the text prompt for the image
@@ -29,4 +29,3 @@ index dc1bf4cb7..3e72c0b4c 100644
 +
          $(stopButton).show();
          eventSource.once(CUSTOM_STOP_EVENT, stopListener);
-         eventSource.once(GENERATION_STOPPED, stopListener);
