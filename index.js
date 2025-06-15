@@ -70,15 +70,20 @@ function getProcessingStrategy(generationType) {
 
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
-    const prompt = `For the tag "${originalTag}", generate 3-5 simpler search terms that might find related tags.
+    const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that describe the same visual concept.
+
+Focus on:
+- Core descriptive words (not character names or franchises)
+- Visual elements, poses, lighting, clothing, body parts, etc.
+- Breaking compound tags into meaningful components
 
 Examples:
-- "led_lighting" → lighting, light, illumination
-- "metal_chair" → chair, seat, furniture
-- "steel_walls" → walls, wall, steel
-- "oversized_clothing" → clothing, clothes, oversized
+- "bright_lighting" → lighting, light, bright, illumination
+- "steel_walls" → walls, wall, steel, metal
+- "female_character" → female, woman, girl
+- "touching_self" → touching, self, masturbation
 
-IMPORTANT: Return ONLY a comma-separated list of words. No quotes, brackets, notes, or explanations.`;
+Return ONLY a comma-separated list of words. No explanations.`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
@@ -398,18 +403,15 @@ Description: ${character.description}
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
-- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
-- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If BOTH components are available, you MUST combine them (comma-separated)
-- NEVER return just one component when both are available
-- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
+RULES:
+1. Select tags semantically closest to "${originalTag}"
+2. Prioritize exact semantic matches over partial matches
+3. Reject character names, franchises, or other contextually inappropriate tags
+4. For compound concepts, prefer tags that capture the core visual meaning
+5. Only combine multiple tags if they together represent the original concept better than any single tag
+6. Context is for image generation - focus on visual, descriptive elements
 
-CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
-
-Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
-
-Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
+Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
@@ -432,18 +434,15 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
-- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
-- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If BOTH components are available, you MUST combine them (comma-separated)
-- NEVER return just one component when both are available
-- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
+RULES:
+1. Select tags that are semantically closest to "${originalTag}"
+2. Prioritize exact semantic matches over partial matches
+3. Reject character names, franchises, or other contextually inappropriate tags
+4. For compound concepts, prefer tags that capture the core visual meaning
+5. Only combine multiple tags if they together represent the original concept better than any single tag
+6. Context is for image generation - focus on visual, descriptive elements
 
-CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
-
-Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
-
-Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
+Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
@@ -476,18 +475,15 @@ ${conversationContext}
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
-- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
-- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If BOTH components are available, you MUST combine them (comma-separated)
-- NEVER return just one component when both are available
-- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
+RULES:
+1. Select tags semantically closest to "${originalTag}"
+2. Prioritize exact semantic matches over partial matches
+3. Reject character names, franchises, or other contextually inappropriate tags
+4. For compound concepts, prefer tags that capture the core visual meaning
+5. Only combine multiple tags if they together represent the original concept better than any single tag
+6. Context is for image generation - focus on visual, descriptive elements
 
-CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
-
-Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
-
-Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
+Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
@@ -497,27 +493,21 @@ Return ONLY the best tag or tags (comma-separated if multiple). Do not include e
     return parseLLMTagSelection(result, candidates);
 }
 
+
 // Generic tag selection fallback
 async function selectBestTagGeneric(candidates, originalTag) {
     const selectionPrompt = `Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
-- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
-- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If BOTH components are available, you MUST combine them (comma-separated)
-- NEVER return just one component when both are available
-- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
-- Avoid completely unrelated or nonsensical matches (ignore character names, anime references, etc.)
+RULES:
+1. Select tags semantically closest to "${originalTag}"
+2. Reject character names, franchises, or unrelated concepts
+3. For descriptive tags, prioritize visual elements
+4. Only combine tags if they together better represent the original concept
+5. When unsure, choose the most contextually appropriate single tag
 
-CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
+This is for image generation - focus on visual, descriptive elements.
 
-EXAMPLES:
-- "padded_room" with candidates ["padded jacket", "padded walls", "room"] → "padded walls, room"
-- "steel_chair" with candidates ["steel", "chair", "dental chair"] → "steel, chair"
-
-Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
-
-Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
+Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
@@ -537,18 +527,15 @@ Context: Describing the human user in the scene
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
-- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
-- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If BOTH components are available, you MUST combine them (comma-separated)
-- NEVER return just one component when both are available
-- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
+RULES:
+1. Select tags semantically closest to "${originalTag}"
+2. Prioritize exact semantic matches over partial matches
+3. Reject character names, franchises, or other contextually inappropriate tags
+4. For compound concepts, prefer tags that capture the core visual meaning
+5. Only combine multiple tags if they together represent the original concept better than any single tag
+6. Context is for image generation - focus on visual, descriptive elements
 
-CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
-
-Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
-
-Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
+Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
@@ -569,18 +556,15 @@ Setting: ${character ? character.scenario || 'General setting' : 'Background env
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
-- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
-- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If BOTH components are available, you MUST combine them (comma-separated)
-- NEVER return just one component when both are available
-- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
+RULES:
+1. Select tags semantically closest to "${originalTag}"
+2. Prioritize exact semantic matches over partial matches
+3. Reject character names, franchises, or other contextually inappropriate tags
+4. For compound concepts, prefer tags that capture the core visual meaning
+5. Only combine multiple tags if they together represent the original concept better than any single tag
+6. Context is for image generation - focus on visual, descriptive elements
 
-CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
-
-Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
-
-Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
+Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
