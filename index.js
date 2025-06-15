@@ -683,7 +683,13 @@ async function correctTagsWithContext(prompt, generationType) {
     
     const correctedTags = await Promise.all(tagPromises);
     
-    const result = correctedTags.join(', ');
+    // Flatten and deduplicate tags
+    const flattenedTags = correctedTags.flatMap(tag => 
+        tag.split(',').map(t => t.trim()).filter(t => t.length > 0)
+    );
+    const uniqueTags = [...new Set(flattenedTags)];
+    
+    const result = uniqueTags.join(', ');
     
     console.log('[TAG-AUTO] Tag correction completed!');
     console.log('[TAG-AUTO] FINAL RESULT:', result);
