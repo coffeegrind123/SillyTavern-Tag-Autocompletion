@@ -1,0 +1,21 @@
+diff --git a/public/scripts/extensions/stable-diffusion/index.js b/public/scripts/extensions/stable-diffusion/index.js
+index dc1bf4cb7..3e72c0b4c 100644
+--- a/public/scripts/extensions/stable-diffusion/index.js
++++ b/public/scripts/extensions/stable-diffusion/index.js
+@@ -2465,9 +2465,16 @@ async function generatePicture(initiator, args, trigger, message, callback) {
+         const combineNegatives = (prefix) => { negativePromptPrefix = combinePrefixes(negativePromptPrefix, prefix); };
+ 
+         // generate the text prompt for the image
+-        const prompt = await getPrompt(generationType, message, trigger, quietPrompt, combineNegatives);
++        let prompt = await getPrompt(generationType, message, trigger, quietPrompt, combineNegatives);
+         console.log('Processed image prompt:', prompt);
+ 
++        // Extension hook for prompt processing
++        if (window.eventSource) {
++            const extensionData = { prompt, generationType, message, trigger };
++            await window.eventSource.emit('sd_prompt_processing', extensionData);
++            prompt = extensionData.prompt; // Allow extensions to modify the prompt
++        }
++
+         $(stopButton).show();
+         eventSource.once(CUSTOM_STOP_EVENT, stopListener);
