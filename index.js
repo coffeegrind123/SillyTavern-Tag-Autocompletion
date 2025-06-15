@@ -232,7 +232,8 @@ async function correctTagsWithContext(prompt, generationType) {
     const correctedTags = [];
     
     // Get processing strategy based on generation type
-    const strategy = getProcessingStrategy(generationType);
+    // const strategy = getProcessingStrategy(generationType);
+    const strategy = getProcessingStrategy();
     
     if (extensionSettings.debug) {
         console.log(`Tag correction: ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
