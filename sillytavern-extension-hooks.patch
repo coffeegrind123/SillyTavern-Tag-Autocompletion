@@ -1,8 +1,20 @@
+diff --git a/public/script.js b/public/script.js
+index abcdef123..456789abc 100644
+--- a/public/script.js
++++ b/public/script.js
+@@ -482,6 +482,7 @@ export const event_types = {
+     GENERATION_STARTED: 'generation_started',
+     GENERATION_STOPPED: 'generation_stopped',
+     GENERATION_ENDED: 'generation_ended',
++    SD_PROMPT_PROCESSING: 'sd_prompt_processing',
+     EXTENSIONS_FIRST_LOAD: 'extensions_first_load',
+     EXTENSION_SETTINGS_LOADED: 'extension_settings_loaded',
+     SETTINGS_LOADED: 'settings_loaded',
 diff --git a/public/scripts/extensions/stable-diffusion/index.js b/public/scripts/extensions/stable-diffusion/index.js
 index dc1bf4cb7..3e72c0b4c 100644
 --- a/public/scripts/extensions/stable-diffusion/index.js
 +++ b/public/scripts/extensions/stable-diffusion/index.js
-@@ -2465,9 +2465,16 @@ async function generatePicture(initiator, args, trigger, message, callback) {
+@@ -2465,9 +2465,15 @@ async function generatePicture(initiator, args, trigger, message, callback) {
          const combineNegatives = (prefix) => { negativePromptPrefix = combinePrefixes(negativePromptPrefix, prefix); };
  
          // generate the text prompt for the image
@@ -11,11 +23,9 @@ index dc1bf4cb7..3e72c0b4c 100644
          console.log('Processed image prompt:', prompt);
  
 +        // Extension hook for prompt processing
-+        if (eventSource) {
-+            const extensionData = { prompt, generationType, message, trigger };
-+            await eventSource.emit('sd_prompt_processing', extensionData);
-+            prompt = extensionData.prompt; // Allow extensions to modify the prompt
-+        }
++        const eventData = { prompt, generationType, message, trigger };
++        await eventSource.emit('sd_prompt_processing', eventData);
++        prompt = eventData.prompt; // Allow extensions to modify the prompt
 +
          $(stopButton).show();
          eventSource.once(CUSTOM_STOP_EVENT, stopListener);
