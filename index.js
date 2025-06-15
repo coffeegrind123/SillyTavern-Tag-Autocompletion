@@ -130,7 +130,7 @@ async function selectBestTagForCharacter(candidates, originalTag) {
     }
 
     const selectionPrompt = `Character: ${character.name}
-Description: ${character.description.slice(0, 500)}
+Description: ${character.description}
 
 Which tag best describes this character: ${candidates.join(', ')}
 Original tag: "${originalTag}"
@@ -157,7 +157,7 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Scene: "${lastMessage.mes.slice(0, 300)}"
+    const selectionPrompt = `Scene: "${lastMessage.mes}"
 
 Which tag best describes what's happening: ${candidates.join(', ')}
 Original tag: "${originalTag}"
@@ -187,8 +187,7 @@ async function selectBestTagForScenario(candidates, originalTag) {
 
     const conversationContext = recentMessages
         .map(msg => `${msg.name}: ${msg.mes}`)
-        .join('\n')
-        .slice(0, 500);
+        .join('\n');
 
     const selectionPrompt = `Recent conversation context:
 ${conversationContext}
