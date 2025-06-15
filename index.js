@@ -156,6 +156,7 @@ Examples:
 - "padded_room" with candidates ["padded jacket", "padded walls"] → NO (padded found, but room missing)
 - "padded_room" with candidates ["padded walls", "room"] → YES (padded + room both found in proper context)
 - "padded_floor" with candidates ["breast padding", "floor"] → NO (breast padding wrong context for floor padding)
+- "ceiling_hatch" with candidates ["ceiling", "hatch", "other tags"] → YES (both ceiling and hatch found)
 - "ceiling_hatch" with candidates ["ceiling", "wallet"] → NO (ceiling found, but hatch missing)
 
 Answer ONLY "YES" or "NO".`;
@@ -431,8 +432,11 @@ Choose the best tag(s) that match "${originalTag}" from these candidates: ${cand
 For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
 - Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
 - Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
-- If both components are available, combine them to preserve the full meaning
+- If BOTH components are available, you MUST combine them (comma-separated)
+- NEVER return just one component when both are available
 - Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
+
+CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
 
 Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
 
