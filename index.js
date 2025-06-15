@@ -10,7 +10,7 @@ const defaultSettings = {
     enabled: false,
     apiEndpoint: 'http://localhost:8000',
     timeout: 5000,
-    candidateLimit: 5,
+    candidateLimit: 20,
     debug: false
 };
 
@@ -48,23 +48,53 @@ function getProcessingStrategy(generationType) {
     switch(generationType) {
         case GENERATION_MODE.NOW: // Last Message
         case GENERATION_MODE.RAW_LAST:
-            return { candidateLimit: 3, strategy: 'fast' }; // Limited context = fewer candidates
+            return { candidateLimit: 10, strategy: 'fast' }; // Limited context = fewer candidates
         case GENERATION_MODE.CHARACTER: // 'you' - Character
         case GENERATION_MODE.FACE: // 'face' - Portrait
         case GENERATION_MODE.USER: // 'me' - User
         case GENERATION_MODE.CHARACTER_MULTIMODAL:
         case GENERATION_MODE.USER_MULTIMODAL:
         case GENERATION_MODE.FACE_MULTIMODAL:
-            return { candidateLimit: 5, strategy: 'comprehensive' }; // Rich character context = more options
+            return { candidateLimit: 20, strategy: 'comprehensive' }; // Rich character context = more options
         case GENERATION_MODE.SCENARIO: // 'scene' - Scenario
-            return { candidateLimit: 4, strategy: 'balanced' }; // Medium context = balanced
+            return { candidateLimit: 15, strategy: 'balanced' }; // Medium context = balanced
         case GENERATION_MODE.BACKGROUND: // 'background' - Background
-            return { candidateLimit: 3, strategy: 'environmental' }; // Environmental focus = fewer candidates
+            return { candidateLimit: 12, strategy: 'environmental' }; // Environmental focus = fewer candidates
         case GENERATION_MODE.FREE:
         case GENERATION_MODE.FREE_EXTENDED:
-            return { candidateLimit: 5, strategy: 'free' }; // Free mode = flexible
+            return { candidateLimit: 20, strategy: 'free' }; // Free mode = flexible
         default:
-            return { candidateLimit: 5, strategy: 'default' };
+            return { candidateLimit: 15, strategy: 'default' };
+    }
+}
+
+// Generate fallback search terms using LLM
+async function generateFallbackTerms(originalTag) {
+    const prompt = `For the tag "${originalTag}", generate 3-5 simpler search terms that might find related tags.
+
+Examples:
+- "led_lighting" → ["lighting", "light", "illumination"]
+- "metal_chair" → ["chair", "seat", "furniture"] 
+- "steel_walls" → ["walls", "wall", "steel"]
+- "oversized_clothing" → ["clothing", "clothes", "oversized"]
+
+Return only a comma-separated list of terms:`;
+
+    try {
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        const terms = result.trim()
+            .split(',')
+            .map(term => term.trim().replace(/['"]/g, ''))
+            .filter(term => term.length > 0 && term !== originalTag);
+        
+        console.log(`[TAG-AUTO] Generated fallback terms for "${originalTag}":`, terms);
+        
+        return terms;
+    } catch (error) {
+        if (extensionSettings.debug) {
+            console.warn('Failed to generate fallback terms:', error);
+        }
+        return [];
     }
 }
 
@@ -100,6 +130,86 @@ async function searchTagCandidates(query, limit = 5) {
         }
         return { candidates: [] };
     }
+}
+
+// Evaluate if search results are good quality using LLM
+async function evaluateSearchResults(originalTag, candidates) {
+    if (!candidates || candidates.length === 0) {
+        return false;
+    }
+    
+    const prompt = `Original tag: "${originalTag}"
+Search results: ${candidates.join(', ')}
+
+Are these search results good quality matches for the original tag? Consider:
+- Do they preserve the original meaning?
+- Are they semantically related?
+- Are there enough relevant options?
+
+Answer only "YES" if the results are good quality, or "NO" if they are poor/unrelated/insufficient.`;
+
+    try {
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        const answer = result.trim().toUpperCase();
+        
+        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer}`);
+        
+        return answer === 'YES';
+    } catch (error) {
+        if (extensionSettings.debug) {
+            console.warn('Failed to evaluate search results:', error);
+        }
+        // Fallback to simple count check
+        return candidates.length >= 3;
+    }
+}
+
+// Enhanced search with LLM-evaluated fallback terms
+async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
+    // Try original search first
+    let result = await searchTagCandidates(originalTag, limit);
+    
+    // Let LLM evaluate if results are good quality
+    const resultsAreGood = await evaluateSearchResults(originalTag, result.candidates);
+    
+    if (resultsAreGood) {
+        console.log(`[TAG-AUTO] LLM says results are GOOD for "${originalTag}" - using original results`);
+        return result;
+    }
+    
+    console.log(`[TAG-AUTO] LLM says results are POOR for "${originalTag}" - generating fallback terms`);
+    
+    // Generate LLM-powered fallback terms
+    const fallbackTerms = await generateFallbackTerms(originalTag);
+    
+    // Try each fallback term
+    for (const fallbackTerm of fallbackTerms) {
+        console.log(`[TAG-AUTO] Trying fallback term "${fallbackTerm}"`);
+        
+        const fallbackResult = await searchTagCandidates(fallbackTerm, limit);
+        
+        if (fallbackResult.candidates && fallbackResult.candidates.length > 0) {
+            console.log(`[TAG-AUTO] Found ${fallbackResult.candidates.length} candidates with fallback term "${fallbackTerm}": [${fallbackResult.candidates.join(', ')}]`);
+            
+            // Combine original results with fallback results
+            const combinedCandidates = [
+                ...(result.candidates || []),
+                ...fallbackResult.candidates
+            ];
+            
+            // Remove duplicates and limit
+            const uniqueCandidates = [...new Set(combinedCandidates)].slice(0, limit);
+            
+            return {
+                query: originalTag,
+                candidates: uniqueCandidates,
+                fallbackTerm: fallbackTerm
+            };
+        }
+    }
+    
+    // Return original result even if poor
+    return result;
 }
 
 // Context-aware tag selection using SillyTavern's LLM
@@ -346,21 +456,16 @@ Return only the best tag.`;
 
 // Main tag correction function
 async function correctTagsWithContext(prompt, generationType) {
-    console.log('Tag Autocompletion: Debug mode check - extensionSettings.debug:', extensionSettings.debug);
-    console.log('Tag Autocompletion: Extension enabled check - extensionSettings.enabled:', extensionSettings.enabled);
+    console.log('[TAG-AUTO] Extension enabled check:', extensionSettings.enabled);
     
     if (!extensionSettings.enabled) {
-        if (extensionSettings.debug) {
-            console.log('Tag Autocompletion: Extension disabled, returning original prompt');
-        }
+        console.log('[TAG-AUTO] Extension disabled, returning original prompt');
         return prompt;
     }
 
-    if (extensionSettings.debug) {
-        console.log('Tag Autocompletion: Starting tag correction...');
-        console.log('Tag Autocompletion: Original prompt:', prompt);
-        console.log('Tag Autocompletion: Generation type:', generationType);
-    }
+    console.log('[TAG-AUTO] Starting tag correction...');
+    console.log('[TAG-AUTO] Original prompt:', prompt);
+    console.log('[TAG-AUTO] Generation type:', generationType);
 
     // Split prompt into individual tags
     const tags = prompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
@@ -370,51 +475,55 @@ async function correctTagsWithContext(prompt, generationType) {
     // const strategy = getProcessingStrategy(generationType);
     const strategy = getProcessingStrategy();
     
-    if (extensionSettings.debug) {
-        console.log(`Tag correction: ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
-        console.log('Tags to process:', tags);
-    }
+    console.log(`[TAG-AUTO] Processing ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
+    console.log('[TAG-AUTO] Tags to process:', tags);
 
     // Process each tag individually
     for (const tag of tags) {
         try {
+            console.log(`[TAG-AUTO] Processing tag: "${tag}"`);
+            
             // Skip metadata tags in brackets (e.g., "[ASPECT:wide]", "[RESOLUTION:1024x1024]")
             if (tag.startsWith('[') && tag.endsWith(']')) {
+                console.log(`[TAG-AUTO] Skipping metadata tag: "${tag}"`);
                 correctedTags.push(tag);
                 continue;
             }
             
             // Skip tags that are likely weights/parameters (e.g., "(from_side:1.1)")
             if (tag.includes(':') && tag.includes('(')) {
+                console.log(`[TAG-AUTO] Skipping parameter tag: "${tag}"`);
                 correctedTags.push(tag);
                 continue;
             }
 
-            const response = await searchTagCandidates(tag, strategy.candidateLimit);
+            const response = await searchTagCandidatesWithFallback(tag, strategy.candidateLimit);
             
             if (response.candidates && response.candidates.length > 0) {
+                console.log(`[TAG-AUTO] API returned ${response.candidates.length} candidates for "${tag}": [${response.candidates.join(', ')}]`);
+                
                 const bestTag = await selectBestTagWithContext(
                     response.candidates, 
                     tag, 
                     generationType
                 );
+                
+                console.log(`[TAG-AUTO] LLM selected best tag for "${tag}": "${bestTag}"`);
                 correctedTags.push(bestTag);
             } else {
+                console.log(`[TAG-AUTO] No candidates found for "${tag}", keeping original`);
                 correctedTags.push(tag); // Fallback to original
             }
         } catch (error) {
-            if (extensionSettings.debug) {
-                console.warn('Tag processing failed for:', tag, error);
-            }
+            console.warn(`[TAG-AUTO] Tag processing failed for "${tag}":`, error);
             correctedTags.push(tag); // Always fallback to original
         }
     }
     
     const result = correctedTags.join(', ');
     
-    if (extensionSettings.debug) {
-        console.log('Tag correction result:', { original: prompt, corrected: result });
-    }
+    console.log('[TAG-AUTO] Tag correction completed!');
+    console.log('[TAG-AUTO] FINAL RESULT:', result);
     
     return result;
 }
@@ -434,24 +543,18 @@ function hookImageGeneration() {
         
         if (eventSource) {
             eventSource.on('sd_prompt_processing', async (data) => {
-                if (extensionSettings.debug) {
-                    console.log('Tag Autocompletion: SD prompt processing event triggered');
-                    console.log('Tag Autocompletion: Original prompt:', data.prompt?.slice(0, 100) + '...');
-                    console.log('Tag Autocompletion: Generation type:', data.generationType);
-                }
+                console.log('[TAG-AUTO] SD prompt processing event triggered');
+                console.log('[TAG-AUTO] Original prompt length:', data.prompt?.length || 0);
+                console.log('[TAG-AUTO] Generation type:', data.generationType);
                 
                 if (extensionSettings.enabled && data.prompt) {
                     try {
                         const corrected = await correctTagsWithContext(data.prompt, data.generationType);
                         data.prompt = corrected;
                         
-                        if (extensionSettings.debug) {
-                            console.log('Tag Autocompletion: Corrected prompt:', corrected.slice(0, 100) + '...');
-                        }
+                        console.log('[TAG-AUTO] Prompt correction complete!');
                     } catch (error) {
-                        if (extensionSettings.debug) {
-                            console.warn('Tag Autocompletion: Error during correction:', error);
-                        }
+                        console.warn('[TAG-AUTO] Error during correction:', error);
                     }
                 }
             });
