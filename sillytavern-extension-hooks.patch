@@ -11,9 +11,9 @@ index dc1bf4cb7..3e72c0b4c 100644
          console.log('Processed image prompt:', prompt);
  
 +        // Extension hook for prompt processing
-+        if (window.eventSource) {
++        if (eventSource) {
 +            const extensionData = { prompt, generationType, message, trigger };
-+            await window.eventSource.emit('sd_prompt_processing', extensionData);
++            await eventSource.emit('sd_prompt_processing', extensionData);
 +            prompt = extensionData.prompt; // Allow extensions to modify the prompt
 +        }
 +

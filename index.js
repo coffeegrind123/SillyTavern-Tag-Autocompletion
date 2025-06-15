@@ -227,8 +227,15 @@ async function correctTagsWithContext(prompt, generationType) {
         console.log('Generation type:', generationType);
     }
 
+    // Extract metadata tags (ASPECT:, RESOLUTION:, etc.) from the beginning
+    const metadataMatches = prompt.match(/^\s*(\[[A-Z_]+:[^\]]+\],?\s*)*/);
+    const metadata = metadataMatches ? metadataMatches[0].trim() : '';
+    
+    // Remove metadata from prompt for tag processing
+    const promptWithoutMetadata = prompt.replace(/^\s*(\[[A-Z_]+:[^\]]+\],?\s*)*/, '');
+    
     // Split prompt into individual tags
-    const tags = prompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    const tags = promptWithoutMetadata.split(',').map(t => t.trim()).filter(t => t.length > 0);
     const correctedTags = [];
     
     // Get processing strategy based on generation type
@@ -268,7 +275,10 @@ async function correctTagsWithContext(prompt, generationType) {
         }
     }
     
-    const result = correctedTags.join(', ');
+    // Rejoin tags and add metadata back at the beginning if it existed
+    const result = metadata ? 
+        metadata + (metadata.endsWith(',') ? ' ' : ', ') + correctedTags.join(', ') : 
+        correctedTags.join(', ');
     
     if (extensionSettings.debug) {
         console.log('Tag correction result:', { original: prompt, corrected: result });
