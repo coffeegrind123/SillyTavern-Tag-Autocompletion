@@ -29,15 +29,18 @@ function saveSettings() {
 
 // Generation mode constants (confirmed from SillyTavern code)
 const GENERATION_MODE = {
-    CHARACTER: 0,
-    SCENARIO: 2,
-    RAW_LAST: 3,
-    NOW: 4,  // Last Message
-    FACE: 5,
-    USER: 6,  // 'you' - user character
-    ASSISTANT: 7,  // 'me' - assistant character
-    WORLD: 8,  // 'scene' - world/environment
-    BACKGROUND: 9  // 'background' - background scene
+    CHARACTER: 0,     // 'you' - Character ("Yourself")
+    USER: 1,          // 'me' - User ("Me") 
+    SCENARIO: 2,      // 'scene' - Scenario ("The Whole Story")
+    RAW_LAST: 3,      // 'raw_last' - Raw Last Message
+    NOW: 4,           // 'last' - Last Message
+    FACE: 5,          // 'face' - Portrait ("Your Face")
+    FREE: 6,          // Default when no trigger matches
+    BACKGROUND: 7,    // 'background' - Background
+    CHARACTER_MULTIMODAL: 8,
+    USER_MULTIMODAL: 9,
+    FACE_MULTIMODAL: 10,
+    FREE_EXTENDED: 11
 };
 
 // Processing strategy based on generation type
@@ -46,16 +49,20 @@ function getProcessingStrategy(generationType) {
         case GENERATION_MODE.NOW: // Last Message
         case GENERATION_MODE.RAW_LAST:
             return { candidateLimit: 3, strategy: 'fast' }; // Limited context = fewer candidates
-        case GENERATION_MODE.CHARACTER:
-        case GENERATION_MODE.FACE:
-        case GENERATION_MODE.USER:
-        case GENERATION_MODE.ASSISTANT:
+        case GENERATION_MODE.CHARACTER: // 'you' - Character
+        case GENERATION_MODE.FACE: // 'face' - Portrait
+        case GENERATION_MODE.USER: // 'me' - User
+        case GENERATION_MODE.CHARACTER_MULTIMODAL:
+        case GENERATION_MODE.USER_MULTIMODAL:
+        case GENERATION_MODE.FACE_MULTIMODAL:
             return { candidateLimit: 5, strategy: 'comprehensive' }; // Rich character context = more options
-        case GENERATION_MODE.SCENARIO:
-        case GENERATION_MODE.WORLD:
+        case GENERATION_MODE.SCENARIO: // 'scene' - Scenario
             return { candidateLimit: 4, strategy: 'balanced' }; // Medium context = balanced
-        case GENERATION_MODE.BACKGROUND:
+        case GENERATION_MODE.BACKGROUND: // 'background' - Background
             return { candidateLimit: 3, strategy: 'environmental' }; // Environmental focus = fewer candidates
+        case GENERATION_MODE.FREE:
+        case GENERATION_MODE.FREE_EXTENDED:
+            return { candidateLimit: 5, strategy: 'free' }; // Free mode = flexible
         default:
             return { candidateLimit: 5, strategy: 'default' };
     }
@@ -107,28 +114,29 @@ async function selectBestTagWithContext(candidates, originalTag, generationType)
 
     try {
         switch(generationType) {
-            case GENERATION_MODE.CHARACTER:
-            case GENERATION_MODE.FACE:
+            case GENERATION_MODE.CHARACTER: // 'you' - Character ("Yourself") - AI character
+            case GENERATION_MODE.FACE: // 'face' - Portrait - AI character face
+            case GENERATION_MODE.CHARACTER_MULTIMODAL:
+            case GENERATION_MODE.FACE_MULTIMODAL:
                 return await selectBestTagForCharacter(candidates, originalTag);
                 
-            case GENERATION_MODE.NOW: // Last Message
-            case GENERATION_MODE.RAW_LAST:
-                return await selectBestTagForLastMessage(candidates, originalTag);
-                
-            case GENERATION_MODE.SCENARIO:
-                return await selectBestTagForScenario(candidates, originalTag);
-                
-            case GENERATION_MODE.USER:
+            case GENERATION_MODE.USER: // 'me' - User ("Me") - Human user
+            case GENERATION_MODE.USER_MULTIMODAL:
                 return await selectBestTagForUser(candidates, originalTag);
                 
-            case GENERATION_MODE.ASSISTANT:
-                return await selectBestTagForAssistant(candidates, originalTag);
+            case GENERATION_MODE.NOW: // 'last' - Last Message
+            case GENERATION_MODE.RAW_LAST: // 'raw_last' - Raw Last Message
+                return await selectBestTagForLastMessage(candidates, originalTag);
                 
-            case GENERATION_MODE.WORLD:
-                return await selectBestTagForWorld(candidates, originalTag);
+            case GENERATION_MODE.SCENARIO: // 'scene' - Scenario ("The Whole Story")
+                return await selectBestTagForScenario(candidates, originalTag);
                 
-            case GENERATION_MODE.BACKGROUND:
+            case GENERATION_MODE.BACKGROUND: // 'background' - Background
                 return await selectBestTagForBackground(candidates, originalTag);
+                
+            case GENERATION_MODE.FREE:
+            case GENERATION_MODE.FREE_EXTENDED:
+                return await selectBestTagGeneric(candidates, originalTag);
                 
             default:
                 return await selectBestTagGeneric(candidates, originalTag);
@@ -141,7 +149,7 @@ async function selectBestTagWithContext(candidates, originalTag, generationType)
     }
 }
 
-// Tag selection for character/face generation (rich context)
+// Tag selection for AI character/face generation (/sd you - CHARACTER mode)
 async function selectBestTagForCharacter(candidates, originalTag) {
     const context = globalContext;
     const character = context.characters[context.characterId];
@@ -197,7 +205,7 @@ Return only the best tag.`;
     return match || candidates[0];
 }
 
-// Tag selection for scenario generation (medium context)
+// Tag selection for scenario generation (/sd world - SCENARIO mode)
 async function selectBestTagForScenario(candidates, originalTag) {
     const context = globalContext;
     const recentMessages = context.chat.slice(-5);
@@ -248,15 +256,15 @@ Return only the best tag.`;
     return match || candidates[0];
 }
 
-// Tag selection for user character generation
+// Tag selection for user character generation (/sd me - USER mode)
 async function selectBestTagForUser(candidates, originalTag) {
     const context = globalContext;
     const userName = context.name1 || 'User';
     
-    const selectionPrompt = `User character: ${userName}
-Context: This is describing the user/player character in the scene.
+    const selectionPrompt = `User: ${userName} (human user/player character)
+Context: Describing the human user in the scene
 
-Which tag best describes the user character: ${candidates.join(', ')}
+Which tag best describes the user: ${candidates.join(', ')}
 Original tag: "${originalTag}"
 
 Return only the best tag.`;
@@ -273,73 +281,14 @@ Return only the best tag.`;
     return match || candidates[0];
 }
 
-// Tag selection for assistant character generation  
-async function selectBestTagForAssistant(candidates, originalTag) {
-    const context = globalContext;
-    const character = context.characters[context.characterId];
-    const assistantName = character?.name || context.name2 || 'Assistant';
-    
-    const selectionPrompt = `Assistant character: ${assistantName}
-${character ? `Description: ${character.description.slice(0, 300)}` : ''}
-Context: This is describing the AI assistant character in the scene.
 
-Which tag best describes the assistant character: ${candidates.join(', ')}
-Original tag: "${originalTag}"
-
-Return only the best tag.`;
-
-    if (extensionSettings.debug) {
-        console.log('Tag Autocompletion: Assistant character selection prompt:', selectionPrompt);
-    }
-
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
-}
-
-// Tag selection for world/scene generation
-async function selectBestTagForWorld(candidates, originalTag) {
-    const context = globalContext;
-    const recentMessages = context.chat.slice(-3);
-    
-    // Extract environmental context from recent messages
-    const sceneContext = recentMessages
-        .map(msg => msg.mes)
-        .join(' ')
-        .slice(0, 400);
-    
-    const selectionPrompt = `Scene/World context:
-${sceneContext}
-
-Which tag best describes the world/environment/scene: ${candidates.join(', ')}
-Original tag: "${originalTag}"
-Focus on environmental, location, and world-building aspects.
-
-Return only the best tag.`;
-
-    if (extensionSettings.debug) {
-        console.log('Tag Autocompletion: World/scene selection prompt:', selectionPrompt);
-    }
-
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
-}
-
-// Tag selection for background generation
+// Tag selection for background generation (/sd background - BACKGROUND mode)
 async function selectBestTagForBackground(candidates, originalTag) {
     const context = globalContext;
     const character = context.characters[context.characterId];
     
     const selectionPrompt = `Background/Environment generation
-${character ? `Character setting: ${character.scenario || 'General setting'}` : ''}
-Context: This is for background/environmental elements, not characters.
+Setting: ${character ? character.scenario || 'General setting' : 'Background environment'}
 
 Which tag best describes the background/environment: ${candidates.join(', ')}
 Original tag: "${originalTag}"
