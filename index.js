@@ -137,22 +137,25 @@ async function evaluateFallbackSufficiency(originalTag, candidates) {
     const prompt = `Original compound tag: "${originalTag}"
 Current candidates found: ${candidates.join(', ')}
 
-Question: Can you find ALL the core components of the original compound tag among these candidates?
+Question: Can you find ALL the core components of the original compound tag among these candidates with CONTEXTUALLY APPROPRIATE matches?
 
 For "${originalTag}", you MUST find:
 ${originalTag.includes('_') ? 
-    `- Component 1: "${originalTag.split('_')[0]}" or similar (REQUIRED)
-- Component 2: "${originalTag.split('_')[1]}" or similar (REQUIRED)` :
+    `- Component 1: "${originalTag.split('_')[0]}" or contextually similar (REQUIRED)
+- Component 2: "${originalTag.split('_')[1]}" or contextually similar (REQUIRED)` :
     `- Any candidates that closely match the original meaning`
 }
 
-Answer YES ONLY if you can find ALL required components among the candidates.
-Answer NO if ANY component is missing.
+IMPORTANT: Components must be contextually appropriate, not just word matches.
+
+Answer YES ONLY if you can find ALL required components with PROPER CONTEXT among the candidates.
+Answer NO if ANY component is missing OR if matches are contextually wrong.
 
 Examples:
-- "steel_walls" with candidates ["steel", "wall", "pokemon"] → YES (steel + wall both found)
+- "steel_walls" with candidates ["steel", "wall", "pokemon"] → YES (steel + wall both found in proper context)
 - "padded_room" with candidates ["padded jacket", "padded walls"] → NO (padded found, but room missing)
-- "padded_room" with candidates ["padded walls", "room"] → YES (padded + room both found)
+- "padded_room" with candidates ["padded walls", "room"] → YES (padded + room both found in proper context)
+- "padded_floor" with candidates ["breast padding", "floor"] → NO (breast padding wrong context for floor padding)
 - "ceiling_hatch" with candidates ["ceiling", "wallet"] → NO (ceiling found, but hatch missing)
 
 Answer ONLY "YES" or "NO".`;
