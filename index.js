@@ -398,15 +398,18 @@ Description: ${character.description}
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-IMPORTANT GUIDELINES:
-- Preserve as much detail and meaning from the original tag as possible
-- Do NOT add descriptors not present in the original (e.g., don't add skin colors, ethnicities, etc.)
-- Prefer tags that keep modifiers and specific details (e.g., "steel_walls" vs just "walls")
-- Avoid completely unrelated tags
-- For compound terms (like "ceiling_hatch", "steel_room"), you SHOULD return multiple tags if together they preserve more meaning than any single tag (e.g., "ceiling, hatch" is better than just "ceiling")
-- Only return one tag if a single candidate captures the full meaning well
+For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
+- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
+- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
+- If BOTH components are available, you MUST combine them (comma-separated)
+- NEVER return just one component when both are available
+- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
 
-Return the best tag or tags (comma-separated if multiple).`;
+CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
+
+Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
+
+Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
@@ -473,15 +476,18 @@ ${conversationContext}
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-IMPORTANT GUIDELINES:
-- Preserve the original tag's specific meaning and details
-- Do NOT add new descriptors not present in the original
-- Maintain the same level of specificity (e.g., "steel_ceiling" vs just "ceiling")
-- Avoid tags that change the fundamental meaning
-- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
-- Select the most semantically similar match(es)
+For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
+- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
+- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
+- If BOTH components are available, you MUST combine them (comma-separated)
+- NEVER return just one component when both are available
+- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
 
-Return the best tag or tags (comma-separated if multiple).`;
+CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
+
+Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
+
+Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
@@ -495,19 +501,23 @@ Return the best tag or tags (comma-separated if multiple).`;
 async function selectBestTagGeneric(candidates, originalTag) {
     const selectionPrompt = `Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-IMPORTANT GUIDELINES:
-- Select the tag(s) that preserve the most meaning from the original
-- Do NOT choose tags that add descriptors not in the original
-- Prefer tags that maintain specific details and modifiers
+For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
+- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
+- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
+- If BOTH components are available, you MUST combine them (comma-separated)
+- NEVER return just one component when both are available
+- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
 - Avoid completely unrelated or nonsensical matches (ignore character names, anime references, etc.)
-- For compound terms like "padded_room", you SHOULD return multiple relevant tags like "padded walls, room" rather than unrelated items
-- Choose based on semantic similarity to the ORIGINAL CONCEPT, not just word overlap
+
+CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
 
 EXAMPLES:
 - "padded_room" with candidates ["padded jacket", "padded walls", "room"] → "padded walls, room"
-- "steel_chair" with candidates ["steel", "chair", "dental chair"] → "steel, chair" or "dental chair"
+- "steel_chair" with candidates ["steel", "chair", "dental chair"] → "steel, chair"
 
-Return the best tag or tags (comma-separated if multiple).`;
+Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
+
+Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
@@ -527,15 +537,18 @@ Context: Describing the human user in the scene
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-IMPORTANT GUIDELINES:
-- Preserve the original tag's meaning and specificity
-- Do NOT add descriptors not present in the original
-- Keep detailed modifiers when available (e.g., "oversized_clothing" vs just "clothing")
-- Avoid unrelated or nonsensical suggestions
-- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
-- Focus on semantic similarity to the original
+For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
+- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
+- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
+- If BOTH components are available, you MUST combine them (comma-separated)
+- NEVER return just one component when both are available
+- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
 
-Return the best tag or tags (comma-separated if multiple).`;
+CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
+
+Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
+
+Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
@@ -556,15 +569,18 @@ Setting: ${character ? character.scenario || 'General setting' : 'Background env
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-IMPORTANT GUIDELINES:
-- Preserve the original tag's environmental details and specificity
-- Do NOT add descriptors not in the original tag
-- Maintain specific environmental details (e.g., "led_lighting" vs just "lighting")
-- Focus on backgrounds, environments, lighting, and atmospheric elements
-- For compound environmental terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
-- Avoid nonsensical or unrelated environmental tags
+For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
+- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
+- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
+- If BOTH components are available, you MUST combine them (comma-separated)
+- NEVER return just one component when both are available
+- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
 
-Return the best tag or tags (comma-separated if multiple).`;
+CRITICAL: For compound tags, component combinations are ALWAYS preferred over single tags.
+
+Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
+
+Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
