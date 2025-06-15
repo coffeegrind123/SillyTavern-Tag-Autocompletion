@@ -161,8 +161,14 @@ async function selectBestTagForCharacter(candidates, originalTag) {
     const selectionPrompt = `Character: ${character.name}
 Description: ${character.description}
 
-Which tag best describes this character: ${candidates.join(', ')}
-Original tag: "${originalTag}"
+Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+
+IMPORTANT GUIDELINES:
+- Preserve as much detail and meaning from the original tag as possible
+- Do NOT add descriptors not present in the original (e.g., don't add skin colors, ethnicities, etc.)
+- Prefer tags that keep modifiers and specific details (e.g., "steel_walls" vs just "walls")
+- Avoid completely unrelated tags
+- If no tag is a good match, choose the closest one
 
 Return only the best tag.`;
 
@@ -188,8 +194,14 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
     const selectionPrompt = `Scene: "${lastMessage.mes}"
 
-Which tag best describes what's happening: ${candidates.join(', ')}
-Original tag: "${originalTag}"
+Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+
+IMPORTANT GUIDELINES:
+- Preserve the original tag's meaning and detail level
+- Do NOT add descriptors not in the original tag
+- Keep specific modifiers when possible (e.g., "led_lighting" vs just "lighting")
+- Avoid nonsensical or unrelated suggestions
+- Choose the most semantically similar option
 
 Return only the best tag.`;
 
@@ -221,8 +233,14 @@ async function selectBestTagForScenario(candidates, originalTag) {
     const selectionPrompt = `Recent conversation context:
 ${conversationContext}
 
-Which tag best fits this scenario: ${candidates.join(', ')}
-Original tag: "${originalTag}"
+Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+
+IMPORTANT GUIDELINES:
+- Preserve the original tag's specific meaning and details
+- Do NOT add new descriptors not present in the original
+- Maintain the same level of specificity (e.g., "steel_ceiling" vs just "ceiling")
+- Avoid tags that change the fundamental meaning
+- Select the most semantically similar match
 
 Return only the best tag.`;
 
@@ -240,7 +258,14 @@ Return only the best tag.`;
 
 // Generic tag selection fallback
 async function selectBestTagGeneric(candidates, originalTag) {
-    const selectionPrompt = `Which of these tags is most similar to "${originalTag}": ${candidates.join(', ')}
+    const selectionPrompt = `Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+
+IMPORTANT GUIDELINES:
+- Select the tag that preserves the most meaning from the original
+- Do NOT choose tags that add descriptors not in the original
+- Prefer tags that maintain specific details and modifiers
+- Avoid completely unrelated or nonsensical matches
+- Choose based on semantic similarity, not just word overlap
 
 Return only the best tag.`;
 
@@ -264,8 +289,14 @@ async function selectBestTagForUser(candidates, originalTag) {
     const selectionPrompt = `User: ${userName} (human user/player character)
 Context: Describing the human user in the scene
 
-Which tag best describes the user: ${candidates.join(', ')}
-Original tag: "${originalTag}"
+Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+
+IMPORTANT GUIDELINES:
+- Preserve the original tag's meaning and specificity
+- Do NOT add descriptors not present in the original
+- Keep detailed modifiers when available (e.g., "oversized_clothing" vs just "clothing")
+- Avoid unrelated or nonsensical suggestions
+- Focus on semantic similarity to the original
 
 Return only the best tag.`;
 
@@ -290,9 +321,14 @@ async function selectBestTagForBackground(candidates, originalTag) {
     const selectionPrompt = `Background/Environment generation
 Setting: ${character ? character.scenario || 'General setting' : 'Background environment'}
 
-Which tag best describes the background/environment: ${candidates.join(', ')}
-Original tag: "${originalTag}"
-Focus on backgrounds, environments, lighting, and atmospheric elements.
+Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+
+IMPORTANT GUIDELINES:
+- Preserve the original tag's environmental details and specificity
+- Do NOT add descriptors not in the original tag
+- Maintain specific environmental details (e.g., "led_lighting" vs just "lighting")
+- Focus on backgrounds, environments, lighting, and atmospheric elements
+- Avoid nonsensical or unrelated environmental tags
 
 Return only the best tag.`;
 
