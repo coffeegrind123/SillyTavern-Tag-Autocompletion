@@ -1,9 +1,9 @@
-#!/bin/bash
+#!/bin/sh
 
 # Script to apply SillyTavern extension hooks patch
 # Usage: ./apply-patch.sh [path-to-sillytavern]
 
-SILLYTAVERN_PATH=${1:-"/app"}
+SILLYTAVERN_PATH=${1:-"/home/node/app"}
 PATCH_FILE="sillytavern-extension-hooks.patch"
 
 echo "🚀 Applying SillyTavern extension hooks patch..."
