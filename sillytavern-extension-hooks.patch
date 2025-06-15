@@ -29,3 +29,4 @@ index dc1bf4cb7..3e72c0b4c 100644
 +
          $(stopButton).show();
          eventSource.once(CUSTOM_STOP_EVENT, stopListener);
+         eventSource.once(GENERATION_STOPPED, stopListener);
