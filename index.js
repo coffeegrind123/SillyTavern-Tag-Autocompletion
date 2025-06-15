@@ -137,20 +137,24 @@ async function evaluateFallbackSufficiency(originalTag, candidates) {
     const prompt = `Original compound tag: "${originalTag}"
 Current candidates found: ${candidates.join(', ')}
 
-Can these candidates adequately represent the original tag's meaning? For compound terms, we need components that together capture the FULL concept. Be STRICT - ignore irrelevant/nonsensical candidates.
+Question: Can you find the core components of the original compound tag among these candidates?
+
+For "${originalTag}", look for:
+${originalTag.includes('_') ? 
+    `- Component 1: "${originalTag.split('_')[0]}" or similar
+- Component 2: "${originalTag.split('_')[1]}" or similar` :
+    `- Any candidates that closely match the original meaning`
+}
+
+If you can find these core components among the candidates (ignoring irrelevant ones), answer YES.
+If the core components are missing, answer NO.
 
 Examples:
-- "padded_room" with candidates ["padded walls", "room"] → YES (both components present and relevant)
-- "padded_room" with candidates ["padded jacket", "pudding", "fading"] → NO (irrelevant candidates, missing "room" component)
-- "steel_chair" with candidates ["steel", "furniture"] → NO (missing specific "chair" component)
-- "ceiling_hatch" with candidates ["ceiling", "hatch"] → YES (both components present and relevant)
+- "steel_walls" with candidates ["steel", "wall", "pokemon"] → YES (steel + wall found, ignore pokemon)
+- "padded_room" with candidates ["padded walls", "room"] → YES (padded + room concepts found)
+- "ceiling_hatch" with candidates ["ceiling", "hatch", "wallet"] → YES (ceiling + hatch found, ignore wallet)
 
-IGNORE candidates that are:
-- Completely unrelated (pudding, fading, wading)
-- Different objects (jacket, coat, gloves for "room")
-- Similar-sounding but different meaning
-
-Answer only "YES" if the current candidates can adequately represent the original, or "NO" if more searching is needed.`;
+Answer ONLY "YES" or "NO".`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
@@ -182,7 +186,7 @@ Are these search results good quality matches for the original tag? Consider:
 
 Even if some candidates are poor, answer "YES" if there's at least one excellent match (e.g., "indoor" → "indoors" is excellent).
 
-Answer only "YES" if the results contain good quality matches, or "NO" if they are all poor/unrelated/insufficient.`;
+Answer ONLY "YES" if the results contain good quality matches, or ONLY "NO" if they are all poor/unrelated/insufficient. Do not include reasoning or explanation.`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
@@ -247,6 +251,7 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
                 const isSufficient = await evaluateFallbackSufficiency(originalTag, allFallbackCandidates);
                 if (isSufficient) {
                     console.log(`[TAG-AUTO] LLM says current candidates are sufficient for "${originalTag}" - stopping search`);
+                    console.log(`[TAG-AUTO] Final sufficient candidates: [${allFallbackCandidates.join(', ')}]`);
                     break;
                 }
             }
