@@ -154,8 +154,9 @@ Answer only "YES" if the current candidates can adequately represent the origina
         
         return answer === 'YES';
     } catch (error) {
-        console.warn('[TAG-AUTO] Failed to evaluate sufficiency:', error);
-        return false; // Continue searching on error
+        console.warn('[TAG-AUTO] Failed to evaluate sufficiency (LLM error):', error);
+        // Fallback: if we have 2+ candidates, assume they're sufficient to avoid infinite loops
+        return candidates.length >= 2;
     }
 }
 
@@ -183,11 +184,9 @@ Answer only "YES" if the results are good quality, or "NO" if they are poor/unre
         
         return answer === 'YES';
     } catch (error) {
-        if (extensionSettings.debug) {
-            console.warn('Failed to evaluate search results:', error);
-        }
-        // Fallback to simple count check
-        return candidates.length >= 3;
+        console.warn('[TAG-AUTO] Failed to evaluate search results (LLM error):', error);
+        // Fallback: assume results are poor if LLM fails, trigger fallback search
+        return false;
     }
 }
 
@@ -247,16 +246,10 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     }
     
     if (allFallbackCandidates.length > 0) {
-        // Combine original results with all fallback results
-        const combinedCandidates = [
-            ...(result.candidates || []),
-            ...allFallbackCandidates
-        ];
-        
         // Remove duplicates and limit
-        const uniqueCandidates = [...new Set(combinedCandidates)].slice(0, limit);
+        const uniqueCandidates = [...new Set(allFallbackCandidates)].slice(0, limit);
         
-        console.log(`[TAG-AUTO] Combined ${allFallbackCandidates.length} fallback candidates with ${result.candidates?.length || 0} original candidates`);
+        console.log(`[TAG-AUTO] Using ${allFallbackCandidates.length} fallback candidates (discarding original poor results)`);
         
         return {
             query: originalTag,
