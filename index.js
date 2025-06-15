@@ -186,18 +186,18 @@ Search results: ${candidates.join(', ')}
 
 Are these search results good quality matches for the original tag? 
 
-For compound tags like "${originalTag}", check if the results preserve the FULL meaning:
 ${originalTag.includes('_') ? 
-    `- Do any results contain or represent "${originalTag.split('_')[0]}"? 
+    `This is a compound tag "${originalTag}". Check if the results preserve the FULL meaning:
+- Do any results contain or represent "${originalTag.split('_')[0]}"? 
 - Do any results contain or represent "${originalTag.split('_')[1]}"?
-- For compound tags, BOTH components should be represented.` :
-    `- Do the results preserve the original meaning?`
+- For compound tags, BOTH components should be represented among the candidates.` :
+    `This is a single-word tag "${originalTag}". Check if any result is a good match:
+- Look for exact matches, plurals, or very similar variations
+- Examples: "indoor" matches "indoors", "cat" matches "cats", "smile" matches "smiling"
+- One excellent match is sufficient for single-word tags.`
 }
 
-For single-word tags, one excellent match is sufficient.
-For compound tags, BOTH components should be represented among the candidates.
-
-Answer ONLY "YES" if the results adequately represent the full original meaning, or ONLY "NO" if key components are missing.`;
+Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
