@@ -132,6 +132,33 @@ async function searchTagCandidates(query, limit = 5) {
     }
 }
 
+// Evaluate if current fallback candidates are sufficient to represent the original
+async function evaluateFallbackSufficiency(originalTag, candidates) {
+    const prompt = `Original compound tag: "${originalTag}"
+Current candidates found: ${candidates.join(', ')}
+
+Can these candidates adequately represent the original tag's meaning? For compound terms, we need components that together capture the full concept.
+
+Examples:
+- "padded_room" with candidates ["padded walls", "room"] → YES (both components present)
+- "steel_chair" with candidates ["steel", "furniture"] → NO (missing specific "chair" component)
+- "ceiling_hatch" with candidates ["ceiling", "hatch"] → YES (both components present)
+
+Answer only "YES" if the current candidates can adequately represent the original, or "NO" if more searching is needed.`;
+
+    try {
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        const answer = result.trim().toUpperCase();
+        
+        console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer}`);
+        
+        return answer === 'YES';
+    } catch (error) {
+        console.warn('[TAG-AUTO] Failed to evaluate sufficiency:', error);
+        return false; // Continue searching on error
+    }
+}
+
 // Evaluate if search results are good quality using LLM
 async function evaluateSearchResults(originalTag, candidates) {
     if (!candidates || candidates.length === 0) {
@@ -207,6 +234,15 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
         if (fallbackResult.candidates && fallbackResult.candidates.length > 0) {
             console.log(`[TAG-AUTO] Found ${fallbackResult.candidates.length} candidates with fallback term "${fallbackTerm}": [${fallbackResult.candidates.join(', ')}]`);
             allFallbackCandidates.push(...fallbackResult.candidates);
+            
+            // Ask LLM if current candidates are sufficient to represent the original
+            if (allFallbackCandidates.length >= 2) {
+                const isSufficient = await evaluateFallbackSufficiency(originalTag, allFallbackCandidates);
+                if (isSufficient) {
+                    console.log(`[TAG-AUTO] LLM says current candidates are sufficient for "${originalTag}" - stopping search`);
+                    break;
+                }
+            }
         }
     }
     
