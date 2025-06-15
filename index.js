@@ -287,8 +287,11 @@ function hookImageGeneration() {
     }
 
     function setupEventHook() {
-        if (window.eventSource) {
-            window.eventSource.on('sd_prompt_processing', async (data) => {
+        const context = window.SillyTavern?.getContext();
+        const eventSource = context?.eventSource;
+        
+        if (eventSource) {
+            eventSource.on('sd_prompt_processing', async (data) => {
                 if (extensionSettings.debug) {
                     console.log('Tag Autocompletion: SD prompt processing event triggered');
                     console.log('Tag Autocompletion: Original prompt:', data.prompt?.slice(0, 100) + '...');
