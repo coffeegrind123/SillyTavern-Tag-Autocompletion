@@ -425,7 +425,9 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
+    const selectionPrompt = `Context: "${lastMessage.mes}"
+
+Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
 - Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
@@ -445,6 +447,11 @@ Return the best tag or tags (comma-separated if multiple).`;
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: LLM raw response for last message:', result);
+    }
+    
     return parseLLMTagSelection(result, candidates);
 }
 
