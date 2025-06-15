@@ -137,6 +137,10 @@ Original tag: "${originalTag}"
 
 Return only the best tag.`;
 
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
+    }
+
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
@@ -159,6 +163,10 @@ Which tag best describes what's happening: ${candidates.join(', ')}
 Original tag: "${originalTag}"
 
 Return only the best tag.`;
+
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
+    }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
@@ -190,6 +198,10 @@ Original tag: "${originalTag}"
 
 Return only the best tag.`;
 
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
+    }
+
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
@@ -204,6 +216,10 @@ async function selectBestTagGeneric(candidates, originalTag) {
 
 Return only the best tag.`;
 
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
+    }
+
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     const trimmed = result.trim().toLowerCase();
     
@@ -214,6 +230,9 @@ Return only the best tag.`;
 
 // Main tag correction function
 async function correctTagsWithContext(prompt, generationType) {
+    console.log('Tag Autocompletion: Debug mode check - extensionSettings.debug:', extensionSettings.debug);
+    console.log('Tag Autocompletion: Extension enabled check - extensionSettings.enabled:', extensionSettings.enabled);
+    
     if (!extensionSettings.enabled) {
         if (extensionSettings.debug) {
             console.log('Tag Autocompletion: Extension disabled, returning original prompt');
@@ -223,8 +242,8 @@ async function correctTagsWithContext(prompt, generationType) {
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Starting tag correction...');
-        console.log('Original prompt:', prompt);
-        console.log('Generation type:', generationType);
+        console.log('Tag Autocompletion: Original prompt:', prompt);
+        console.log('Tag Autocompletion: Generation type:', generationType);
     }
 
     // Split prompt into individual tags
