@@ -33,7 +33,11 @@ const GENERATION_MODE = {
     SCENARIO: 2,
     RAW_LAST: 3,
     NOW: 4,  // Last Message
-    FACE: 5
+    FACE: 5,
+    USER: 6,  // 'you' - user character
+    ASSISTANT: 7,  // 'me' - assistant character
+    WORLD: 8,  // 'scene' - world/environment
+    BACKGROUND: 9  // 'background' - background scene
 };
 
 // Processing strategy based on generation type
@@ -44,9 +48,14 @@ function getProcessingStrategy(generationType) {
             return { candidateLimit: 3, strategy: 'fast' }; // Limited context = fewer candidates
         case GENERATION_MODE.CHARACTER:
         case GENERATION_MODE.FACE:
-            return { candidateLimit: 5, strategy: 'comprehensive' }; // Rich context = more options
+        case GENERATION_MODE.USER:
+        case GENERATION_MODE.ASSISTANT:
+            return { candidateLimit: 5, strategy: 'comprehensive' }; // Rich character context = more options
         case GENERATION_MODE.SCENARIO:
+        case GENERATION_MODE.WORLD:
             return { candidateLimit: 4, strategy: 'balanced' }; // Medium context = balanced
+        case GENERATION_MODE.BACKGROUND:
+            return { candidateLimit: 3, strategy: 'environmental' }; // Environmental focus = fewer candidates
         default:
             return { candidateLimit: 5, strategy: 'default' };
     }
@@ -108,6 +117,18 @@ async function selectBestTagWithContext(candidates, originalTag, generationType)
                 
             case GENERATION_MODE.SCENARIO:
                 return await selectBestTagForScenario(candidates, originalTag);
+                
+            case GENERATION_MODE.USER:
+                return await selectBestTagForUser(candidates, originalTag);
+                
+            case GENERATION_MODE.ASSISTANT:
+                return await selectBestTagForAssistant(candidates, originalTag);
+                
+            case GENERATION_MODE.WORLD:
+                return await selectBestTagForWorld(candidates, originalTag);
+                
+            case GENERATION_MODE.BACKGROUND:
+                return await selectBestTagForBackground(candidates, originalTag);
                 
             default:
                 return await selectBestTagGeneric(candidates, originalTag);
@@ -217,6 +238,117 @@ Return only the best tag.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
+    }
+
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const trimmed = result.trim().toLowerCase();
+    
+    // Find exact match in candidates (case insensitive)
+    const match = candidates.find(c => c.toLowerCase() === trimmed);
+    return match || candidates[0];
+}
+
+// Tag selection for user character generation
+async function selectBestTagForUser(candidates, originalTag) {
+    const context = globalContext;
+    const userName = context.name1 || 'User';
+    
+    const selectionPrompt = `User character: ${userName}
+Context: This is describing the user/player character in the scene.
+
+Which tag best describes the user character: ${candidates.join(', ')}
+Original tag: "${originalTag}"
+
+Return only the best tag.`;
+
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
+    }
+
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const trimmed = result.trim().toLowerCase();
+    
+    // Find exact match in candidates (case insensitive)
+    const match = candidates.find(c => c.toLowerCase() === trimmed);
+    return match || candidates[0];
+}
+
+// Tag selection for assistant character generation  
+async function selectBestTagForAssistant(candidates, originalTag) {
+    const context = globalContext;
+    const character = context.characters[context.characterId];
+    const assistantName = character?.name || context.name2 || 'Assistant';
+    
+    const selectionPrompt = `Assistant character: ${assistantName}
+${character ? `Description: ${character.description.slice(0, 300)}` : ''}
+Context: This is describing the AI assistant character in the scene.
+
+Which tag best describes the assistant character: ${candidates.join(', ')}
+Original tag: "${originalTag}"
+
+Return only the best tag.`;
+
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Assistant character selection prompt:', selectionPrompt);
+    }
+
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const trimmed = result.trim().toLowerCase();
+    
+    // Find exact match in candidates (case insensitive)
+    const match = candidates.find(c => c.toLowerCase() === trimmed);
+    return match || candidates[0];
+}
+
+// Tag selection for world/scene generation
+async function selectBestTagForWorld(candidates, originalTag) {
+    const context = globalContext;
+    const recentMessages = context.chat.slice(-3);
+    
+    // Extract environmental context from recent messages
+    const sceneContext = recentMessages
+        .map(msg => msg.mes)
+        .join(' ')
+        .slice(0, 400);
+    
+    const selectionPrompt = `Scene/World context:
+${sceneContext}
+
+Which tag best describes the world/environment/scene: ${candidates.join(', ')}
+Original tag: "${originalTag}"
+Focus on environmental, location, and world-building aspects.
+
+Return only the best tag.`;
+
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: World/scene selection prompt:', selectionPrompt);
+    }
+
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const trimmed = result.trim().toLowerCase();
+    
+    // Find exact match in candidates (case insensitive)
+    const match = candidates.find(c => c.toLowerCase() === trimmed);
+    return match || candidates[0];
+}
+
+// Tag selection for background generation
+async function selectBestTagForBackground(candidates, originalTag) {
+    const context = globalContext;
+    const character = context.characters[context.characterId];
+    
+    const selectionPrompt = `Background/Environment generation
+${character ? `Character setting: ${character.scenario || 'General setting'}` : ''}
+Context: This is for background/environmental elements, not characters.
+
+Which tag best describes the background/environment: ${candidates.join(', ')}
+Original tag: "${originalTag}"
+Focus on backgrounds, environments, lighting, and atmospheric elements.
+
+Return only the best tag.`;
+
+    if (extensionSettings.debug) {
+        console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
