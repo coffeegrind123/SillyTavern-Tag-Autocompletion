@@ -73,19 +73,19 @@ async function generateFallbackTerms(originalTag) {
     const prompt = `For the tag "${originalTag}", generate 3-5 simpler search terms that might find related tags.
 
 Examples:
-- "led_lighting" → ["lighting", "light", "illumination"]
-- "metal_chair" → ["chair", "seat", "furniture"] 
-- "steel_walls" → ["walls", "wall", "steel"]
-- "oversized_clothing" → ["clothing", "clothes", "oversized"]
+- "led_lighting" → lighting, light, illumination
+- "metal_chair" → chair, seat, furniture
+- "steel_walls" → walls, wall, steel
+- "oversized_clothing" → clothing, clothes, oversized
 
-Return only a comma-separated list of terms:`;
+IMPORTANT: Return ONLY a comma-separated list of words. No quotes, brackets, notes, or explanations.`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
         const terms = result.trim()
-            .split(',')
-            .map(term => term.trim().replace(/['"]/g, ''))
-            .filter(term => term.length > 0 && term !== originalTag);
+            .split(/[,\n]/)
+            .map(term => term.trim().replace(/['"()\[\]*]/g, ''))
+            .filter(term => term.length > 0 && term !== originalTag && !term.includes('Note:') && !term.includes('derived'));
         
         console.log(`[TAG-AUTO] Generated fallback terms for "${originalTag}":`, terms);
         
@@ -169,6 +169,19 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     // Try original search first
     let result = await searchTagCandidates(originalTag, limit);
     
+    // Skip LLM evaluation if we have exact/near-exact matches
+    if (result.candidates && result.candidates.length > 0) {
+        const normalizedOriginal = originalTag.toLowerCase().replace(/[_\s]/g, '');
+        const hasExactMatch = result.candidates.some(candidate => 
+            candidate.toLowerCase().replace(/[_\s]/g, '') === normalizedOriginal
+        );
+        
+        if (hasExactMatch) {
+            console.log(`[TAG-AUTO] Found exact match for "${originalTag}" - skipping LLM evaluation`);
+            return result;
+        }
+    }
+    
     // Let LLM evaluate if results are good quality
     const resultsAreGood = await evaluateSearchResults(originalTag, result.candidates);
     
@@ -182,7 +195,10 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     // Generate LLM-powered fallback terms
     const fallbackTerms = await generateFallbackTerms(originalTag);
     
-    // Try each fallback term
+    // Collect all fallback results
+    let allFallbackCandidates = [];
+    
+    // Try each fallback term and collect all results
     for (const fallbackTerm of fallbackTerms) {
         console.log(`[TAG-AUTO] Trying fallback term "${fallbackTerm}"`);
         
@@ -190,26 +206,52 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
         
         if (fallbackResult.candidates && fallbackResult.candidates.length > 0) {
             console.log(`[TAG-AUTO] Found ${fallbackResult.candidates.length} candidates with fallback term "${fallbackTerm}": [${fallbackResult.candidates.join(', ')}]`);
-            
-            // Combine original results with fallback results
-            const combinedCandidates = [
-                ...(result.candidates || []),
-                ...fallbackResult.candidates
-            ];
-            
-            // Remove duplicates and limit
-            const uniqueCandidates = [...new Set(combinedCandidates)].slice(0, limit);
-            
-            return {
-                query: originalTag,
-                candidates: uniqueCandidates,
-                fallbackTerm: fallbackTerm
-            };
+            allFallbackCandidates.push(...fallbackResult.candidates);
         }
+    }
+    
+    if (allFallbackCandidates.length > 0) {
+        // Combine original results with all fallback results
+        const combinedCandidates = [
+            ...(result.candidates || []),
+            ...allFallbackCandidates
+        ];
+        
+        // Remove duplicates and limit
+        const uniqueCandidates = [...new Set(combinedCandidates)].slice(0, limit);
+        
+        console.log(`[TAG-AUTO] Combined ${allFallbackCandidates.length} fallback candidates with ${result.candidates?.length || 0} original candidates`);
+        
+        return {
+            query: originalTag,
+            candidates: uniqueCandidates,
+            fallbackTerms: fallbackTerms
+        };
     }
     
     // Return original result even if poor
     return result;
+}
+
+// Helper function to parse LLM tag selection response
+function parseLLMTagSelection(result, candidates) {
+    const trimmed = result.trim().toLowerCase();
+    
+    // Handle multiple tags (comma-separated)
+    if (trimmed.includes(',')) {
+        const selectedTags = trimmed.split(',')
+            .map(tag => tag.trim())
+            .map(tag => candidates.find(c => c.toLowerCase() === tag))
+            .filter(tag => tag !== undefined);
+        
+        if (selectedTags.length > 0) {
+            return selectedTags.join(', ');
+        }
+    }
+    
+    // Single tag match
+    const match = candidates.find(c => c.toLowerCase() === trimmed);
+    return match || candidates[0];
 }
 
 // Context-aware tag selection using SillyTavern's LLM
@@ -271,27 +313,24 @@ async function selectBestTagForCharacter(candidates, originalTag) {
     const selectionPrompt = `Character: ${character.name}
 Description: ${character.description}
 
-Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 IMPORTANT GUIDELINES:
 - Preserve as much detail and meaning from the original tag as possible
 - Do NOT add descriptors not present in the original (e.g., don't add skin colors, ethnicities, etc.)
 - Prefer tags that keep modifiers and specific details (e.g., "steel_walls" vs just "walls")
 - Avoid completely unrelated tags
-- If no tag is a good match, choose the closest one
+- For compound terms (like "ceiling_hatch", "steel_room"), you SHOULD return multiple tags if together they preserve more meaning than any single tag (e.g., "ceiling, hatch" is better than just "ceiling")
+- Only return one tag if a single candidate captures the full meaning well
 
-Return only the best tag.`;
+Return the best tag or tags (comma-separated if multiple).`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    return parseLLMTagSelection(result, candidates);
 }
 
 // Tag selection for last message generation (limited context)
@@ -304,27 +343,24 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
     const selectionPrompt = `Scene: "${lastMessage.mes}"
 
-Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 IMPORTANT GUIDELINES:
 - Preserve the original tag's meaning and detail level
 - Do NOT add descriptors not in the original tag
 - Keep specific modifiers when possible (e.g., "led_lighting" vs just "lighting")
 - Avoid nonsensical or unrelated suggestions
-- Choose the most semantically similar option
+- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
+- Choose the most semantically similar option(s)
 
-Return only the best tag.`;
+Return the best tag or tags (comma-separated if multiple).`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    return parseLLMTagSelection(result, candidates);
 }
 
 // Tag selection for scenario generation (/sd world - SCENARIO mode)
@@ -343,52 +379,46 @@ async function selectBestTagForScenario(candidates, originalTag) {
     const selectionPrompt = `Recent conversation context:
 ${conversationContext}
 
-Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 IMPORTANT GUIDELINES:
 - Preserve the original tag's specific meaning and details
 - Do NOT add new descriptors not present in the original
 - Maintain the same level of specificity (e.g., "steel_ceiling" vs just "ceiling")
 - Avoid tags that change the fundamental meaning
-- Select the most semantically similar match
+- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
+- Select the most semantically similar match(es)
 
-Return only the best tag.`;
+Return the best tag or tags (comma-separated if multiple).`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    return parseLLMTagSelection(result, candidates);
 }
 
 // Generic tag selection fallback
 async function selectBestTagGeneric(candidates, originalTag) {
-    const selectionPrompt = `Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+    const selectionPrompt = `Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 IMPORTANT GUIDELINES:
-- Select the tag that preserves the most meaning from the original
+- Select the tag(s) that preserve the most meaning from the original
 - Do NOT choose tags that add descriptors not in the original
 - Prefer tags that maintain specific details and modifiers
 - Avoid completely unrelated or nonsensical matches
+- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
 - Choose based on semantic similarity, not just word overlap
 
-Return only the best tag.`;
+Return the best tag or tags (comma-separated if multiple).`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    return parseLLMTagSelection(result, candidates);
 }
 
 // Tag selection for user character generation (/sd me - USER mode)
@@ -399,27 +429,24 @@ async function selectBestTagForUser(candidates, originalTag) {
     const selectionPrompt = `User: ${userName} (human user/player character)
 Context: Describing the human user in the scene
 
-Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 IMPORTANT GUIDELINES:
 - Preserve the original tag's meaning and specificity
 - Do NOT add descriptors not present in the original
 - Keep detailed modifiers when available (e.g., "oversized_clothing" vs just "clothing")
 - Avoid unrelated or nonsensical suggestions
+- For compound terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
 - Focus on semantic similarity to the original
 
-Return only the best tag.`;
+Return the best tag or tags (comma-separated if multiple).`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    return parseLLMTagSelection(result, candidates);
 }
 
 
@@ -431,27 +458,24 @@ async function selectBestTagForBackground(candidates, originalTag) {
     const selectionPrompt = `Background/Environment generation
 Setting: ${character ? character.scenario || 'General setting' : 'Background environment'}
 
-Choose the tag that best matches "${originalTag}" from these candidates: ${candidates.join(', ')}
+Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 IMPORTANT GUIDELINES:
 - Preserve the original tag's environmental details and specificity
 - Do NOT add descriptors not in the original tag
 - Maintain specific environmental details (e.g., "led_lighting" vs just "lighting")
 - Focus on backgrounds, environments, lighting, and atmospheric elements
+- For compound environmental terms, you SHOULD return multiple tags if together they preserve more meaning than any single tag
 - Avoid nonsensical or unrelated environmental tags
 
-Return only the best tag.`;
+Return the best tag or tags (comma-separated if multiple).`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
     const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    const trimmed = result.trim().toLowerCase();
-    
-    // Find exact match in candidates (case insensitive)
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    return parseLLMTagSelection(result, candidates);
 }
 
 // Main tag correction function
