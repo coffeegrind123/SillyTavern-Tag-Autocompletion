@@ -440,7 +440,7 @@ CRITICAL: For compound tags, component combinations are ALWAYS preferred over si
 
 Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
 
-Return the best tag or tags (comma-separated if multiple).`;
+Return ONLY the best tag or tags (comma-separated if multiple). Do not include explanations, reasoning, or formatting.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
