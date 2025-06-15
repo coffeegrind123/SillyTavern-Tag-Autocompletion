@@ -401,12 +401,13 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
 Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
-For compound tags like "${originalTag}", look for candidates that represent each component:
-- Find tags representing "${originalTag.split('_')[0]}" 
-- Find tags representing "${originalTag.split('_')[1]}"
+For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
+- Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
+- Find tags representing "${originalTag.split('_')[1]}" (contextually appropriate)
 - If both components are available, combine them to preserve the full meaning
+- Reject contextually wrong matches (e.g., "breast padding" for floor/room padding)
 
-Focus on reconstructing the original tag's complete meaning using the available candidates.
+Focus on reconstructing the original tag's complete meaning using contextually appropriate candidates.
 
 Return the best tag or tags (comma-separated if multiple).`;
 
