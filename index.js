@@ -589,7 +589,6 @@ async function correctTagsWithContext(prompt, generationType) {
 
     // Split prompt into individual tags
     const tags = prompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
-    const correctedTags = [];
     
     // Get processing strategy based on generation type
     // const strategy = getProcessingStrategy(generationType);
