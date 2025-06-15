@@ -137,22 +137,23 @@ async function evaluateFallbackSufficiency(originalTag, candidates) {
     const prompt = `Original compound tag: "${originalTag}"
 Current candidates found: ${candidates.join(', ')}
 
-Question: Can you find the core components of the original compound tag among these candidates?
+Question: Can you find ALL the core components of the original compound tag among these candidates?
 
-For "${originalTag}", look for:
+For "${originalTag}", you MUST find:
 ${originalTag.includes('_') ? 
-    `- Component 1: "${originalTag.split('_')[0]}" or similar
-- Component 2: "${originalTag.split('_')[1]}" or similar` :
+    `- Component 1: "${originalTag.split('_')[0]}" or similar (REQUIRED)
+- Component 2: "${originalTag.split('_')[1]}" or similar (REQUIRED)` :
     `- Any candidates that closely match the original meaning`
 }
 
-If you can find these core components among the candidates (ignoring irrelevant ones), answer YES.
-If the core components are missing, answer NO.
+Answer YES ONLY if you can find ALL required components among the candidates.
+Answer NO if ANY component is missing.
 
 Examples:
-- "steel_walls" with candidates ["steel", "wall", "pokemon"] → YES (steel + wall found, ignore pokemon)
-- "padded_room" with candidates ["padded walls", "room"] → YES (padded + room concepts found)
-- "ceiling_hatch" with candidates ["ceiling", "hatch", "wallet"] → YES (ceiling + hatch found, ignore wallet)
+- "steel_walls" with candidates ["steel", "wall", "pokemon"] → YES (steel + wall both found)
+- "padded_room" with candidates ["padded jacket", "padded walls"] → NO (padded found, but room missing)
+- "padded_room" with candidates ["padded walls", "room"] → YES (padded + room both found)
+- "ceiling_hatch" with candidates ["ceiling", "wallet"] → NO (ceiling found, but hatch missing)
 
 Answer ONLY "YES" or "NO".`;
 
@@ -179,14 +180,20 @@ async function evaluateSearchResults(originalTag, candidates) {
     const prompt = `Original tag: "${originalTag}"
 Search results: ${candidates.join(', ')}
 
-Are these search results good quality matches for the original tag? Consider:
-- Do they preserve the original meaning?
-- Are they semantically related?
-- Is there at least ONE high-quality match among them?
+Are these search results good quality matches for the original tag? 
 
-Even if some candidates are poor, answer "YES" if there's at least one excellent match (e.g., "indoor" → "indoors" is excellent).
+For compound tags like "${originalTag}", check if the results preserve the FULL meaning:
+${originalTag.includes('_') ? 
+    `- Do any results contain or represent "${originalTag.split('_')[0]}"? 
+- Do any results contain or represent "${originalTag.split('_')[1]}"?
+- For compound tags, BOTH components should be represented.` :
+    `- Do the results preserve the original meaning?`
+}
 
-Answer ONLY "YES" if the results contain good quality matches, or ONLY "NO" if they are all poor/unrelated/insufficient. Do not include reasoning or explanation.`;
+For single-word tags, one excellent match is sufficient.
+For compound tags, BOTH components should be represented among the candidates.
+
+Answer ONLY "YES" if the results adequately represent the full original meaning, or ONLY "NO" if key components are missing.`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
