@@ -598,16 +598,15 @@ async function correctTagsWithContext(prompt, generationType) {
     console.log(`[TAG-AUTO] Processing ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
     console.log('[TAG-AUTO] Tags to process:', tags);
 
-    // Process each tag individually
-    for (const tag of tags) {
+    // Process all tags in parallel
+    const tagPromises = tags.map(async (tag) => {
         try {
             console.log(`[TAG-AUTO] Processing tag: "${tag}"`);
             
             // Skip metadata tags in brackets (e.g., "[ASPECT:wide]", "[RESOLUTION:1024x1024]")
             if (tag.startsWith('[') && tag.endsWith(']')) {
                 console.log(`[TAG-AUTO] Skipping metadata tag: "${tag}"`);
-                correctedTags.push(tag);
-                continue;
+                return tag;
             }
             
             // Handle mixed metadata + tag (e.g., "[ASPECT:square] padded_room")
@@ -630,20 +629,18 @@ async function correctTagsWithContext(prompt, generationType) {
                         );
                         
                         console.log(`[TAG-AUTO] LLM selected best tag for "${actualTag}": "${bestTag}"`);
-                        correctedTags.push(`${metadata} ${bestTag}`); // Recombine with metadata
+                        return `${metadata} ${bestTag}`; // Recombine with metadata
                     } else {
                         console.log(`[TAG-AUTO] No candidates found for "${actualTag}", keeping original`);
-                        correctedTags.push(tag);
+                        return tag;
                     }
-                    continue;
                 }
             }
             
             // Skip tags that are likely weights/parameters (e.g., "(from_side:1.1)")
             if (tag.includes(':') && tag.includes('(')) {
                 console.log(`[TAG-AUTO] Skipping parameter tag: "${tag}"`);
-                correctedTags.push(tag);
-                continue;
+                return tag;
             }
 
             const response = await searchTagCandidatesWithFallback(tag, strategy.candidateLimit);
@@ -658,16 +655,18 @@ async function correctTagsWithContext(prompt, generationType) {
                 );
                 
                 console.log(`[TAG-AUTO] LLM selected best tag for "${tag}": "${bestTag}"`);
-                correctedTags.push(bestTag);
+                return bestTag;
             } else {
                 console.log(`[TAG-AUTO] No candidates found for "${tag}", keeping original`);
-                correctedTags.push(tag); // Fallback to original
+                return tag; // Fallback to original
             }
         } catch (error) {
             console.warn(`[TAG-AUTO] Tag processing failed for "${tag}":`, error);
-            correctedTags.push(tag); // Always fallback to original
+            return tag; // Always fallback to original
         }
-    }
+    });
+    
+    const correctedTags = await Promise.all(tagPromises);
     
     const result = correctedTags.join(', ');
     
