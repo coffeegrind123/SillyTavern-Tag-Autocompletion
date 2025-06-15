@@ -137,12 +137,18 @@ async function evaluateFallbackSufficiency(originalTag, candidates) {
     const prompt = `Original compound tag: "${originalTag}"
 Current candidates found: ${candidates.join(', ')}
 
-Can these candidates adequately represent the original tag's meaning? For compound terms, we need components that together capture the full concept.
+Can these candidates adequately represent the original tag's meaning? For compound terms, we need components that together capture the FULL concept. Be STRICT - ignore irrelevant/nonsensical candidates.
 
 Examples:
-- "padded_room" with candidates ["padded walls", "room"] → YES (both components present)
+- "padded_room" with candidates ["padded walls", "room"] → YES (both components present and relevant)
+- "padded_room" with candidates ["padded jacket", "pudding", "fading"] → NO (irrelevant candidates, missing "room" component)
 - "steel_chair" with candidates ["steel", "furniture"] → NO (missing specific "chair" component)
-- "ceiling_hatch" with candidates ["ceiling", "hatch"] → YES (both components present)
+- "ceiling_hatch" with candidates ["ceiling", "hatch"] → YES (both components present and relevant)
+
+IGNORE candidates that are:
+- Completely unrelated (pudding, fading, wading)
+- Different objects (jacket, coat, gloves for "room")
+- Similar-sounding but different meaning
 
 Answer only "YES" if the current candidates can adequately represent the original, or "NO" if more searching is needed.`;
 
@@ -546,6 +552,35 @@ async function correctTagsWithContext(prompt, generationType) {
                 console.log(`[TAG-AUTO] Skipping metadata tag: "${tag}"`);
                 correctedTags.push(tag);
                 continue;
+            }
+            
+            // Handle mixed metadata + tag (e.g., "[ASPECT:square] padded_room")
+            if (tag.includes('[') && tag.includes(']')) {
+                const metadataMatch = tag.match(/(\[.*?\])\s*(.+)/);
+                if (metadataMatch) {
+                    const [, metadata, actualTag] = metadataMatch;
+                    console.log(`[TAG-AUTO] Processing mixed tag: metadata="${metadata}" tag="${actualTag}"`);
+                    
+                    // Process the actual tag part
+                    const response = await searchTagCandidatesWithFallback(actualTag, strategy.candidateLimit);
+                    
+                    if (response.candidates && response.candidates.length > 0) {
+                        console.log(`[TAG-AUTO] API returned ${response.candidates.length} candidates for "${actualTag}": [${response.candidates.join(', ')}]`);
+                        
+                        const bestTag = await selectBestTagWithContext(
+                            response.candidates, 
+                            actualTag, 
+                            generationType
+                        );
+                        
+                        console.log(`[TAG-AUTO] LLM selected best tag for "${actualTag}": "${bestTag}"`);
+                        correctedTags.push(`${metadata} ${bestTag}`); // Recombine with metadata
+                    } else {
+                        console.log(`[TAG-AUTO] No candidates found for "${actualTag}", keeping original`);
+                        correctedTags.push(tag);
+                    }
+                    continue;
+                }
             }
             
             // Skip tags that are likely weights/parameters (e.g., "(from_side:1.1)")
