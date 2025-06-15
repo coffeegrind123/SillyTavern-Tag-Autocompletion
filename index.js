@@ -425,9 +425,7 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Scene: "${lastMessage.mes}"
-
-Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
+    const selectionPrompt = `Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
 
 For compound tags like "${originalTag}", look for candidates that represent each component with PROPER CONTEXT:
 - Find tags representing "${originalTag.split('_')[0]}" (contextually appropriate)
