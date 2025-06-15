@@ -272,8 +272,35 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     }
     
     if (allFallbackCandidates.length > 0) {
-        // Remove duplicates and limit
-        const uniqueCandidates = [...new Set(allFallbackCandidates)].slice(0, limit);
+        // Remove duplicates but preserve component diversity for compound tags
+        let uniqueCandidates = [...new Set(allFallbackCandidates)];
+        
+        // For compound tags, ensure we preserve candidates representing both components
+        if (originalTag.includes('_')) {
+            const [component1, component2] = originalTag.split('_');
+            
+            // Find candidates that match each component
+            const component1Candidates = uniqueCandidates.filter(c => 
+                c.toLowerCase().includes(component1.toLowerCase()) || 
+                c.toLowerCase().replace(/[_\s]/g, '').includes(component1.toLowerCase())
+            );
+            const component2Candidates = uniqueCandidates.filter(c => 
+                c.toLowerCase().includes(component2.toLowerCase()) || 
+                c.toLowerCase().replace(/[_\s]/g, '').includes(component2.toLowerCase())
+            );
+            
+            // Prioritize candidates that represent both components
+            const prioritizedCandidates = [
+                ...component1Candidates.slice(0, Math.ceil(limit/2)),
+                ...component2Candidates.slice(0, Math.ceil(limit/2))
+            ];
+            
+            // Add remaining candidates if we have space
+            const remaining = uniqueCandidates.filter(c => !prioritizedCandidates.includes(c));
+            uniqueCandidates = [...new Set([...prioritizedCandidates, ...remaining])].slice(0, limit);
+        } else {
+            uniqueCandidates = uniqueCandidates.slice(0, limit);
+        }
         
         console.log(`[TAG-AUTO] Using ${allFallbackCandidates.length} fallback candidates (discarding original poor results)`);
         
