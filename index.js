@@ -178,9 +178,11 @@ Search results: ${candidates.join(', ')}
 Are these search results good quality matches for the original tag? Consider:
 - Do they preserve the original meaning?
 - Are they semantically related?
-- Are there enough relevant options?
+- Is there at least ONE high-quality match among them?
 
-Answer only "YES" if the results are good quality, or "NO" if they are poor/unrelated/insufficient.`;
+Even if some candidates are poor, answer "YES" if there's at least one excellent match (e.g., "indoor" → "indoors" is excellent).
+
+Answer only "YES" if the results contain good quality matches, or "NO" if they are all poor/unrelated/insufficient.`;
 
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
