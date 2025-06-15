@@ -286,38 +286,62 @@ function hookImageGeneration() {
         console.log('Tag Autocompletion: Setting up clean event hooks...');
     }
 
-    // Hook into the proper SD extension event
-    if (window.eventSource) {
-        window.eventSource.on('sd_prompt_processing', async (data) => {
-            if (extensionSettings.debug) {
-                console.log('Tag Autocompletion: SD prompt processing event triggered');
-                console.log('Tag Autocompletion: Original prompt:', data.prompt?.slice(0, 100) + '...');
-                console.log('Tag Autocompletion: Generation type:', data.generationType);
-            }
-            
-            if (extensionSettings.enabled && data.prompt) {
-                try {
-                    const corrected = await correctTagsWithContext(data.prompt, data.generationType);
-                    data.prompt = corrected;
-                    
-                    if (extensionSettings.debug) {
-                        console.log('Tag Autocompletion: Corrected prompt:', corrected.slice(0, 100) + '...');
-                    }
-                } catch (error) {
-                    if (extensionSettings.debug) {
-                        console.warn('Tag Autocompletion: Error during correction:', error);
+    function setupEventHook() {
+        if (window.eventSource) {
+            window.eventSource.on('sd_prompt_processing', async (data) => {
+                if (extensionSettings.debug) {
+                    console.log('Tag Autocompletion: SD prompt processing event triggered');
+                    console.log('Tag Autocompletion: Original prompt:', data.prompt?.slice(0, 100) + '...');
+                    console.log('Tag Autocompletion: Generation type:', data.generationType);
+                }
+                
+                if (extensionSettings.enabled && data.prompt) {
+                    try {
+                        const corrected = await correctTagsWithContext(data.prompt, data.generationType);
+                        data.prompt = corrected;
+                        
+                        if (extensionSettings.debug) {
+                            console.log('Tag Autocompletion: Corrected prompt:', corrected.slice(0, 100) + '...');
+                        }
+                    } catch (error) {
+                        if (extensionSettings.debug) {
+                            console.warn('Tag Autocompletion: Error during correction:', error);
+                        }
                     }
                 }
+            });
+            
+            if (extensionSettings.debug) {
+                console.log('Tag Autocompletion: Successfully hooked into SD prompt processing event');
             }
-        });
+            return true;
+        }
+        return false;
+    }
+
+    // Try to setup hook immediately
+    if (!setupEventHook()) {
+        if (extensionSettings.debug) {
+            console.log('Tag Autocompletion: EventSource not available yet, waiting...');
+        }
         
-        if (extensionSettings.debug) {
-            console.log('Tag Autocompletion: Successfully hooked into SD prompt processing event');
-        }
-    } else {
-        if (extensionSettings.debug) {
-            console.warn('Tag Autocompletion: EventSource not available');
-        }
+        // Wait for eventSource to become available
+        let attempts = 0;
+        const maxAttempts = 50; // 5 seconds max wait
+        const interval = setInterval(() => {
+            attempts++;
+            if (setupEventHook()) {
+                clearInterval(interval);
+                if (extensionSettings.debug) {
+                    console.log(`Tag Autocompletion: EventSource found after ${attempts * 100}ms`);
+                }
+            } else if (attempts >= maxAttempts) {
+                clearInterval(interval);
+                if (extensionSettings.debug) {
+                    console.warn('Tag Autocompletion: EventSource still not available after 5 seconds');
+                }
+            }
+        }, 100);
     }
 }
 
