@@ -227,15 +227,8 @@ async function correctTagsWithContext(prompt, generationType) {
         console.log('Generation type:', generationType);
     }
 
-    // Extract metadata tags (ASPECT:, RESOLUTION:, etc.) from the beginning
-    const metadataMatches = prompt.match(/^\s*(\[[A-Z_]+:[^\]]+\],?\s*)*/);
-    const metadata = metadataMatches ? metadataMatches[0].trim() : '';
-    
-    // Remove metadata from prompt for tag processing
-    const promptWithoutMetadata = prompt.replace(/^\s*(\[[A-Z_]+:[^\]]+\],?\s*)*/, '');
-    
     // Split prompt into individual tags
-    const tags = promptWithoutMetadata.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    const tags = prompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
     const correctedTags = [];
     
     // Get processing strategy based on generation type
@@ -249,6 +242,12 @@ async function correctTagsWithContext(prompt, generationType) {
     // Process each tag individually
     for (const tag of tags) {
         try {
+            // Skip metadata tags in brackets (e.g., "[ASPECT:wide]", "[RESOLUTION:1024x1024]")
+            if (tag.startsWith('[') && tag.endsWith(']')) {
+                correctedTags.push(tag);
+                continue;
+            }
+            
             // Skip tags that are likely weights/parameters (e.g., "(from_side:1.1)")
             if (tag.includes(':') && tag.includes('(')) {
                 correctedTags.push(tag);
@@ -275,10 +274,7 @@ async function correctTagsWithContext(prompt, generationType) {
         }
     }
     
-    // Rejoin tags and add metadata back at the beginning if it existed
-    const result = metadata ? 
-        metadata + (metadata.endsWith(',') ? ' ' : ', ') + correctedTags.join(', ') : 
-        correctedTags.join(', ');
+    const result = correctedTags.join(', ');
     
     if (extensionSettings.debug) {
         console.log('Tag correction result:', { original: prompt, corrected: result });
