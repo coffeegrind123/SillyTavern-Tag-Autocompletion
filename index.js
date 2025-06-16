@@ -698,21 +698,14 @@ async function selectBestTagForCharacter(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the character context and choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
-
-CHARACTER CONTEXT:
-Character: ${character.name}
-Description: ${character.description}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
 SELECTION CRITERIA:
 - Choose the tag that best represents the visual concept of "${originalTag}"
-- Consider the specific character description and attributes
-- Prioritize tags that match the character's visual elements
-- Select tags appropriate for character/portrait generation
-- Focus on what IS visible, present, and actively described
-- Use character context to inform the most fitting visual representation
+- Select tags semantically closest to the original meaning
+- Focus on visual and descriptive elements
 
 CRITICAL RULES:
 - Return ONLY ONE tag name from the candidates list
@@ -743,19 +736,14 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the last message context and choose the most appropriate tag that matches the visual concept described. Do not stop until you have identified the optimal tag choice.
-
-LAST MESSAGE CONTEXT: "${lastMessage.mes}"
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
 SELECTION CRITERIA:
 - Choose the tag that best represents the visual concept of "${originalTag}"
-- Consider the specific visual details from the last message
-- Prioritize tags that match visual elements described in the recent content
-- Select tags appropriate for last message generation (limited context)
-- Focus on what IS visible, present, and actively described in the latest interaction
-- Emphasize immediate visual details from the message content
+- Select tags semantically closest to the original meaning
+- Focus on visual and descriptive elements
 
 CRITICAL RULES:
 - Return ONLY ONE tag name from the candidates list
@@ -796,21 +784,14 @@ async function selectBestTagForScenario(candidates, originalTag) {
         .map(msg => `${msg.name}: ${msg.mes}`)
         .join('\n');
 
-    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the scenario context from recent conversation and choose the most appropriate tag that matches the environmental and scene-based visual concept. Do not stop until you have identified the optimal tag choice.
-
-RECENT CONVERSATION CONTEXT:
-${conversationContext}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
 SELECTION CRITERIA:
 - Choose the tag that best represents the visual concept of "${originalTag}"
-- Consider the broader scenario context from the recent conversation
-- Prioritize tags that match environmental and scene elements
-- Select tags appropriate for scenario/world generation (comprehensive context)
-- Focus on what IS visible, present, and actively described in the scene
-- Emphasize environmental details, setting, atmosphere, and overall composition
-- Consider multiple character interactions and scene dynamics
+- Select tags semantically closest to the original meaning
+- Focus on visual and descriptive elements
 
 CRITICAL RULES:
 - Return ONLY ONE tag name from the candidates list
@@ -870,22 +851,14 @@ async function selectBestTagForUser(candidates, originalTag) {
     const context = globalContext;
     const userName = context.name1 || 'User';
     
-    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the user character context and choose the most appropriate tag that matches the visual concept for user representation. Do not stop until you have identified the optimal tag choice.
-
-USER CONTEXT:
-User: ${userName} (human user/player character)
-Context: Describing the human user in the scene
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
 SELECTION CRITERIA:
 - Choose the tag that best represents the visual concept of "${originalTag}"
-- Consider user/player character context and perspective
-- Prioritize tags that match user-focused visual elements
-- Select tags appropriate for user character generation
-- Focus on what IS visible, present, and actively described
-- Emphasize personal character details and user-specific attributes
-- Consider the user's role in the interaction
+- Select tags semantically closest to the original meaning
+- Focus on visual and descriptive elements
 
 CRITICAL RULES:
 - Return ONLY ONE tag name from the candidates list
@@ -914,21 +887,14 @@ async function selectBestTagForBackground(candidates, originalTag) {
     const context = globalContext;
     const character = context.characters[context.characterId];
     
-    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the background/environmental context and choose the most appropriate tag that matches the environmental visual concept. Do not stop until you have identified the optimal tag choice.
-
-BACKGROUND/ENVIRONMENT GENERATION CONTEXT:
-Setting: ${character ? character.scenario || 'General setting' : 'Background environment'}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
 SELECTION CRITERIA:
 - Choose the tag that best represents the visual concept of "${originalTag}"
-- Consider background and environmental context specifically
-- Prioritize tags that match environmental, architectural, and atmospheric elements
-- Select tags appropriate for background/environment generation
-- Focus on what IS visible, present, and actively described in the setting
-- Emphasize location details, lighting, weather, and environmental atmosphere
-- Consider spatial elements, structures, and ambient features
+- Select tags semantically closest to the original meaning
+- Focus on visual and descriptive elements
 
 CRITICAL RULES:
 - Return ONLY ONE tag name from the candidates list
