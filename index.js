@@ -631,9 +631,90 @@ function parseLLMTagSelection(result, candidates) {
         }
     }
     
-    // Single tag match
-    const match = candidates.find(c => c.toLowerCase() === cleanResult.toLowerCase());
-    return match || candidates[0];
+    // Normalize function to handle underscore/space variations
+    function normalizeTag(tag) {
+        return tag.toLowerCase()
+            .replace(/[_\s]/g, '') // Remove underscores and spaces
+            .replace(/[^\w]/g, ''); // Remove all non-alphanumeric
+    }
+    
+    // Try exact matches first (most reliable)
+    for (const candidate of candidates) {
+        if (cleanResult.toLowerCase() === candidate.toLowerCase()) {
+            console.log(`[TAG-AUTO] Exact match found: "${candidate}"`);
+            return candidate;
+        }
+    }
+    
+    // Try word boundary matches
+    for (const candidate of candidates) {
+        const escapedCandidate = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const exactRegex = new RegExp(`\\b${escapedCandidate}\\b`, 'gi');
+        if (exactRegex.test(cleanResult)) {
+            console.log(`[TAG-AUTO] Exact match found: "${candidate}"`);
+            return candidate;
+        }
+    }
+    
+    // Try normalized matches (handles underscore/space differences)
+    const normalizedResult = normalizeTag(cleanResult);
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeTag(candidate);
+        if (normalizedResult === normalizedCandidate) {
+            console.log(`[TAG-AUTO] Exact normalized match found: "${candidate}"`);
+            return candidate;
+        }
+    }
+    
+    // Try partial word matches
+    for (const candidate of candidates) {
+        if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
+            console.log(`[TAG-AUTO] Partial match found: "${candidate}"`);
+            return candidate;
+        }
+        // Also try the reverse - candidate contains the result
+        if (candidate.toLowerCase().includes(cleanResult.toLowerCase()) && cleanResult.length >= 3) {
+            console.log(`[TAG-AUTO] Reverse partial match found: "${candidate}" contains "${cleanResult}"`);
+            return candidate;
+        }
+    }
+    
+    // Extract potential tag from last line/word
+    const lines = cleanResult.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lastLine = lines[lines.length - 1] || '';
+    const words = lastLine.split(/\s+/);
+    const lastWord = words[words.length - 1] || '';
+    
+    // Check if last word/line matches any candidate
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeTag(candidate);
+        const normalizedLastWord = normalizeTag(lastWord);
+        const normalizedLastLine = normalizeTag(lastLine);
+        
+        if (normalizedLastWord === normalizedCandidate || normalizedLastLine === normalizedCandidate) {
+            console.log(`[TAG-AUTO] Last word/line match: "${candidate}" from "${lastLine}"`);
+            return candidate;
+        }
+    }
+    
+    // Try matching individual words in the result against candidates
+    const resultWords = cleanResult.toLowerCase().split(/\s+/);
+    for (const candidate of candidates) {
+        const candidateWords = candidate.toLowerCase().split(/[\s_]+/);
+        
+        // Check if any candidate word appears in result words
+        for (const candidateWord of candidateWords) {
+            if (candidateWord.length >= 3 && resultWords.some(word => 
+                normalizeTag(word) === normalizeTag(candidateWord))) {
+                console.log(`[TAG-AUTO] Word component match: "${candidate}" (matched word: "${candidateWord}")`);
+                return candidate;
+            }
+        }
+    }
+    
+    // Last resort: return first candidate
+    console.warn(`[TAG-AUTO] Could not parse LLM response: "${cleanResult}" - using first candidate: "${candidates[0]}"`);
+    return candidates[0];
 }
 
 // Context-aware tag selection using SillyTavern's LLM
