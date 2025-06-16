@@ -509,16 +509,29 @@ async function directLLMCall(prompt) {
         throw new Error('[TAG-AUTO] ChatCompletionService not available - cannot make direct LLM calls');
     }
     
-    // Prepare the request data with minimal settings
+    // Get current profile settings to build proper request
+    const oaiSettings = context.chatCompletionSettings || {};
+    
+    // Prepare the request data with required fields from current profile
     const requestData = {
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 50,
         temperature: 0.1,
-        stream: false
+        stream: false,
+        // Add required fields from profile settings
+        chat_completion_source: oaiSettings.chat_completion_source,
+        model: oaiSettings.openai_model,
+        custom_url: oaiSettings.custom_url,
+        reverse_proxy: oaiSettings.reverse_proxy
     };
+    
+    console.log('[TAG-AUTO] Direct LLM call request data:', requestData);
+    console.log('[TAG-AUTO] Current profile settings:', oaiSettings);
     
     // Make direct API call that respects current profile settings
     const result = await ChatCompletionService.sendRequest(requestData, true, new AbortController().signal);
+    
+    console.log('[TAG-AUTO] Direct LLM call result:', result);
     
     return result.content || result;
 }
