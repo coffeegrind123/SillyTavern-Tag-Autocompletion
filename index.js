@@ -17,6 +17,7 @@ const defaultSettings = {
 // Profile management constants
 const REQUIRED_PROFILE_NAME = 'tag_autocompletion';
 let profileCheckPassed = false;
+let profileSwitchInProgress = false;
 
 // Profile management functions
 function checkProfileExists() {
@@ -35,6 +36,13 @@ async function withTagProfile(asyncOperation) {
         throw new Error(`Profile "${REQUIRED_PROFILE_NAME}" not available`);
     }
     
+    // Wait for any ongoing profile switch to complete
+    while (profileSwitchInProgress) {
+        console.log('[TAG-AUTO] Waiting for ongoing profile switch to complete...');
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    
+    profileSwitchInProgress = true;
     console.log('[TAG-AUTO] Starting withTagProfile wrapper');
     
     // Check if SlashCommandParser is available - try multiple sources
@@ -78,12 +86,16 @@ async function withTagProfile(asyncOperation) {
         const switchResult = await slashParser.commands['profile'].callback(args, REQUIRED_PROFILE_NAME);
         console.log(`[TAG-AUTO] Profile switch result:`, switchResult);
         
+        // Add delay to let profile switch settle
+        await new Promise(resolve => setTimeout(resolve, 200));
+        
         // Verify profile was switched
         const verifyProfile = await slashParser.commands['profile'].callback(getNamedArguments(), '');
         console.log(`[TAG-AUTO] Current profile after switch: "${verifyProfile || 'None'}"`);
         
         if (verifyProfile !== REQUIRED_PROFILE_NAME) {
             console.error(`[TAG-AUTO] Profile switch failed! Expected "${REQUIRED_PROFILE_NAME}", got "${verifyProfile}"`);
+            throw new Error(`Profile switch failed: expected "${REQUIRED_PROFILE_NAME}", got "${verifyProfile}"`);
         }
         
         // Execute the operation
@@ -94,6 +106,7 @@ async function withTagProfile(asyncOperation) {
         return result;
     } catch (error) {
         console.error('[TAG-AUTO] Error in withTagProfile:', error);
+        profileSwitchInProgress = false;
         throw error;
     } finally {
         // Always restore original profile
@@ -109,10 +122,15 @@ async function withTagProfile(asyncOperation) {
             const restoreResult = await slashParser.commands['profile'].callback(args, restoreTarget);
             console.log(`[TAG-AUTO] Profile restore result:`, restoreResult);
             
+            // Add delay to let profile restoration settle
+            await new Promise(resolve => setTimeout(resolve, 200));
+            
             const finalProfile = await slashParser.commands['profile'].callback(getNamedArguments(), '');
             console.log(`[TAG-AUTO] Final profile after restoration: "${finalProfile || 'None'}"`);
         } catch (error) {
             console.warn('[TAG-AUTO] Failed to restore original profile:', error);
+        } finally {
+            profileSwitchInProgress = false;
         }
     }
 }
@@ -313,7 +331,7 @@ Answer ONLY "YES" or "NO".`;
             return await globalContext.generateQuietPrompt(prompt, false, false);
         });
         
-        const answer = result.trim().toUpperCase();
+        const answer = result.trim().toUpperCase().replace(/[^\w]/g, '');
         console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer}`);
         
         return answer === 'YES';
@@ -353,7 +371,7 @@ Answer ONLY "YES" if the results adequately represent the original meaning, or O
             return await globalContext.generateQuietPrompt(prompt, false, false);
         });
         
-        const answer = result.trim().toUpperCase();
+        const answer = result.trim().toUpperCase().replace(/[^\w]/g, '');
         console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer}`);
         
         return answer === 'YES';
