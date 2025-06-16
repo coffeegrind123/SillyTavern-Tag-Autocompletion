@@ -25,6 +25,7 @@ function resetProfileSwitchState() {
     profileSwitchInProgress = false;
 }
 
+
 // Profile management functions
 function checkProfileExists() {
     const profiles = globalContext.extensionSettings?.connectionManager?.profiles || [];
@@ -340,8 +341,10 @@ Answer ONLY "YES" or "NO".`;
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
-        const answer = result.trim().toUpperCase().replace(/[^\w]/g, '');
-        console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer}`);
+        // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
+        const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+        const answer = cleanResult.replace(/[^\w]/g, ''); // Remove non-word characters
+        console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer} (from raw: ${result.substring(0, 100)}...)`);
         
         return answer === 'YES';
     } catch (error) {
@@ -378,8 +381,10 @@ Answer ONLY "YES" if the results adequately represent the original meaning, or O
     try {
         const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
-        const answer = result.trim().toUpperCase().replace(/[^\w]/g, '');
-        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer}`);
+        // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
+        const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+        const answer = cleanResult.replace(/[^\w]/g, ''); // Remove non-word characters
+        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer} (from raw: ${result.substring(0, 100)}...)`);
         
         return answer === 'YES';
     } catch (error) {
@@ -1255,6 +1260,16 @@ const init = async () => {
 
 // Expose emergency reset function globally for debugging
 window.tagAutoResetProfileSwitch = resetProfileSwitchState;
+
+// Test function to verify think tag stripping works
+window.tagAutoTestThinkStripping = function(text) {
+    console.log('Original:', text);
+    const cleanResult = text.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+    console.log('After think removal:', cleanResult);
+    const answer = cleanResult.replace(/[^\w]/g, '');
+    console.log('Final answer:', answer);
+    return answer;
+};
 
 // Initialize the extension
 await init();
