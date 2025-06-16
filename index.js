@@ -497,42 +497,78 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     return result;
 }
 
-// Direct LLM API call bypassing SillyTavern's queue system while respecting profiles
+// Direct LLM API call using fetch with SillyTavern profile settings
 async function directLLMCall(prompt) {
     // Get the current context to access settings
     const context = globalContext;
     
-    // Use SillyTavern's ChatCompletionService for direct calls with profile support
-    const ChatCompletionService = context.ChatCompletionService;
-    
-    if (!ChatCompletionService) {
-        throw new Error('[TAG-AUTO] ChatCompletionService not available - cannot make direct LLM calls');
-    }
-    
-    // Get current profile settings to build proper request
+    // Get current profile settings
     const oaiSettings = context.chatCompletionSettings || {};
     
-    // Use processRequest instead of sendRequest for proper handling
+    if (!oaiSettings.chat_completion_source) {
+        throw new Error('[TAG-AUTO] No chat completion source configured in current profile');
+    }
+    
+    // Build request data based on SillyTavern's format
     const requestData = {
         stream: false,
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 50,
         temperature: 0.1,
-        model: oaiSettings.openai_model,
+        model: oaiSettings.openai_model || 'gpt-4-turbo',
         chat_completion_source: oaiSettings.chat_completion_source,
         custom_url: oaiSettings.custom_url,
         reverse_proxy: oaiSettings.reverse_proxy
     };
     
+    // Determine the endpoint URL based on the completion source
+    let endpointUrl;
+    if (oaiSettings.chat_completion_source === 'custom') {
+        endpointUrl = oaiSettings.custom_url || 'http://localhost:8080';
+        if (!endpointUrl.endsWith('/v1/chat/completions')) {
+            endpointUrl = endpointUrl.replace(/\/$/, '') + '/v1/chat/completions';
+        }
+    } else {
+        // For other sources, use reverse proxy or default
+        endpointUrl = oaiSettings.reverse_proxy || 'https://api.openai.com/v1/chat/completions';
+    }
+    
+    // Build headers
+    const headers = {
+        'Content-Type': 'application/json'
+    };
+    
+    // Add authorization if needed
+    if (oaiSettings.api_key_openai && oaiSettings.chat_completion_source !== 'custom') {
+        headers['Authorization'] = `Bearer ${oaiSettings.api_key_openai}`;
+    }
+    
     console.log('[TAG-AUTO] Direct LLM call using processRequest');
-    console.log('[TAG-AUTO] Request data:', JSON.stringify(requestData, null, 2));
+    console.log('[TAG-AUTO] Request data:', requestData);
     
-    // Use processRequest for proper preset and profile handling
-    const result = await ChatCompletionService.processRequest(requestData, {}, true, new AbortController().signal);
-    
-    console.log('[TAG-AUTO] Direct LLM call result:', result);
-    
-    return result.content || result;
+    try {
+        const response = await fetch(endpointUrl, {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify(requestData),
+            signal: AbortSignal.timeout(15000) // 15 second timeout
+        });
+        
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+        
+        const data = await response.json();
+        console.log('[TAG-AUTO] Direct LLM call result:', data);
+        
+        // Extract content from response
+        const content = data.choices?.[0]?.message?.content || data.content || '';
+        return content;
+        
+    } catch (error) {
+        console.error('[TAG-AUTO] Direct LLM call failed:', error);
+        throw error;
+    }
 }
 
 // Validate LLM tag selection using same pattern as evaluateSearchResults
@@ -834,7 +870,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await directLLMCall(selectionPrompt);
     
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: LLM raw response for last message:', result);
@@ -882,7 +918,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await directLLMCall(selectionPrompt);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -914,7 +950,7 @@ OUTPUT FORMAT: Return only the selected tag name, nothing else.`;
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await directLLMCall(selectionPrompt);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -949,7 +985,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await directLLMCall(selectionPrompt);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -985,7 +1021,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await directLLMCall(selectionPrompt);
     return parseLLMTagSelection(result, candidates);
 }
 
