@@ -746,25 +746,33 @@ async function correctTagsWithContext(prompt, generationType) {
     // Clean the prompt by removing thinking tags and explanatory content
     let cleanPrompt = prompt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     
-    // Look for content after the last "< think>" or similar markers
+    // Look for content after the last "< think>" or similar markers (case insensitive)
     let lastThinkIndex = -1;
     let skipLength = 0;
     
-    const spaceThink = cleanPrompt.lastIndexOf('< think>');
-    const openThink = cleanPrompt.lastIndexOf('<think>');
-    const closeThink = cleanPrompt.lastIndexOf('</think>');
+    // Check all variations of think markers
+    const spaceThinkLower = cleanPrompt.lastIndexOf('< think>');
+    const spaceThinkUpper = cleanPrompt.lastIndexOf('< THINK>');
+    const openThinkLower = cleanPrompt.lastIndexOf('<think>');
+    const openThinkUpper = cleanPrompt.lastIndexOf('<THINK>');
+    const closeThinkLower = cleanPrompt.lastIndexOf('</think>');
+    const closeThinkUpper = cleanPrompt.lastIndexOf('</THINK>');
+    
+    const spaceThink = Math.max(spaceThinkLower, spaceThinkUpper);
+    const openThink = Math.max(openThinkLower, openThinkUpper);
+    const closeThink = Math.max(closeThinkLower, closeThinkUpper);
     
     if (spaceThink > lastThinkIndex) {
         lastThinkIndex = spaceThink;
-        skipLength = 8; // "< think>" length
+        skipLength = 8; // "< think>" or "< THINK>" length
     }
     if (openThink > lastThinkIndex) {
         lastThinkIndex = openThink;
-        skipLength = 7; // "<think>" length
+        skipLength = 7; // "<think>" or "<THINK>" length
     }
     if (closeThink > lastThinkIndex) {
         lastThinkIndex = closeThink;
-        skipLength = 8; // "</think>" length
+        skipLength = 8; // "</think>" or "</THINK>" length
     }
     
     if (lastThinkIndex !== -1) {
@@ -915,6 +923,10 @@ function hookImageGeneration() {
                 console.log('[TAG-AUTO] Original prompt:', data.prompt);
                 console.log('[TAG-AUTO] Generation type:', data.generationType);
                 console.log('[TAG-AUTO] Extension enabled:', extensionSettings.enabled);
+                
+                // Debug: Check what profile is active when the event fires
+                const currentProfile = getCurrentProfile();
+                console.log('[TAG-AUTO] Current profile when event fires:', currentProfile?.name || 'None');
                 
                 if (extensionSettings.enabled && data.prompt) {
                     try {
