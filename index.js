@@ -1004,15 +1004,12 @@ async function processTagForLLMSelection(apiResult, tagIndex, generationType, st
         if (apiResult.hasApiResults) {
             console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selecting for "${apiResult.tag}" with ${apiResult.result.candidates.length} candidates`);
             
-            const bestTag = await selectBestTagWithContext(
-                apiResult.result.candidates, 
-                apiResult.tag, 
-                generationType
-            );
+            // Special handling for compound tags that were broken down into components
+            const result = await handleCompoundTagSelection(apiResult, generationType);
             
-            console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selected "${bestTag}" for "${apiResult.tag}"`);
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: Selected "${result}" for "${apiResult.tag}"`);
             stats.successfulCorrections++;
-            return bestTag;
+            return result;
         } else {
             console.log(`[TAG-AUTO] Batch ${tagIndex}: No candidates found, keeping original: "${apiResult.tag}"`);
             return apiResult.tag;
@@ -1021,6 +1018,87 @@ async function processTagForLLMSelection(apiResult, tagIndex, generationType, st
     
     // Fallback case
     return apiResult.tag;
+}
+
+// Handle compound tag selection with smart combination logic
+async function handleCompoundTagSelection(apiResult, generationType) {
+    const originalTag = apiResult.tag;
+    const candidates = apiResult.result.candidates;
+    
+    // Check if this looks like a compound tag that was broken down
+    const isCompoundTag = originalTag.includes('_') && candidates.length >= 2;
+    
+    if (isCompoundTag) {
+        const components = originalTag.split('_');
+        console.log(`[TAG-AUTO] Detected compound tag "${originalTag}" with components: [${components.join(', ')}]`);
+        
+        // Try to find candidates that represent each component
+        const componentMatches = [];
+        
+        for (const component of components) {
+            const matchingCandidate = candidates.find(candidate => 
+                candidate.toLowerCase().includes(component.toLowerCase()) ||
+                component.toLowerCase().includes(candidate.toLowerCase())
+            );
+            
+            if (matchingCandidate) {
+                componentMatches.push(matchingCandidate);
+                console.log(`[TAG-AUTO] Found component match: "${component}" -> "${matchingCandidate}"`);
+            }
+        }
+        
+        // If we found matches for multiple components, combine them intelligently
+        if (componentMatches.length >= 2) {
+            // Remove duplicates while preserving order
+            const uniqueMatches = [...new Set(componentMatches)];
+            
+            // For certain compound concepts, combine the tags
+            if (shouldCombineComponents(originalTag, uniqueMatches)) {
+                const combined = uniqueMatches.join(', ');
+                console.log(`[TAG-AUTO] Combining components for "${originalTag}": "${combined}"`);
+                return combined;
+            }
+        }
+        
+        // If component matching didn't work well, fall back to single best match
+        console.log(`[TAG-AUTO] Component matching insufficient, using single best match for "${originalTag}"`);
+    }
+    
+    // Standard single tag selection
+    return await selectBestTagWithContext(candidates, originalTag, generationType);
+}
+
+// Determine if components should be combined for compound tags
+function shouldCombineComponents(originalTag, componentMatches) {
+    // Combine for position-related compound tags
+    const positionCompounds = [
+        'on_hands_and_knees', 'hands_and_knees', 'all_fours',
+        'spread_legs', 'legs_spread', 'wide_spread',
+        'bent_over', 'head_down', 'arched_back'
+    ];
+    
+    // Combine for body-part compound tags  
+    const bodyPartCompounds = [
+        'wet_thighs', 'wet_skin', 'small_breasts', 'flat_chest',
+        'pink_hair', 'long_hair', 'hair_over_face'
+    ];
+    
+    // Combine for action compound tags
+    const actionCompounds = [
+        'dripping_fluid', 'fluid_drip', 'clear_fluid',
+        'female_orgasm', 'after_orgasm', 'squirting_liquid'
+    ];
+    
+    const allCompoundTypes = [...positionCompounds, ...bodyPartCompounds, ...actionCompounds];
+    
+    // Check if original tag matches known compound patterns
+    const matchesPattern = allCompoundTypes.some(pattern => 
+        originalTag.toLowerCase().includes(pattern.toLowerCase()) ||
+        pattern.toLowerCase().includes(originalTag.toLowerCase())
+    );
+    
+    // Only combine if we have 2-3 meaningful components and it's a known compound type
+    return matchesPattern && componentMatches.length >= 2 && componentMatches.length <= 3;
 }
 
 // Log processing summary with performance metrics
