@@ -9,7 +9,7 @@ let extensionSettings = {};
 const defaultSettings = {
     enabled: false,
     apiEndpoint: 'http://localhost:8000',
-    timeout: 10000, // Increased to 10 seconds
+    timeout: 30000, // Increased to 30 seconds
     candidateLimit: 20,
     debug: false
 };
@@ -800,7 +800,7 @@ async function processTagsInBatch(prompt, generationType) {
 
 // Optimized batch processing with parallel API calls and sequential LLM calls
 async function processBatchedParallel(tags, strategy, generationType) {
-    const BATCH_SIZE = 4; // Process 4 tags per batch for optimal balance
+    const BATCH_SIZE = 8; // Process 8 tags per batch for optimal balance
     const correctedTags = [];
     const processingStats = {
         totalTags: tags.length,
