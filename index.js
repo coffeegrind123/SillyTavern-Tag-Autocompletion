@@ -568,11 +568,28 @@ function parseLLMTagSelection(result, candidates) {
     const normalizedResult = normalizeTag(cleanResult);
     for (const candidate of candidates) {
         const normalizedCandidate = normalizeTag(candidate);
-        if (normalizedResult.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedResult)) {
-            console.log(`[TAG-AUTO] Normalized match found: "${candidate}" (normalized: "${normalizedCandidate}" in "${normalizedResult}")`);
+        // Exact normalized match (highest priority)
+        if (normalizedResult === normalizedCandidate) {
+            console.log(`[TAG-AUTO] Exact normalized match found: "${candidate}"`);
             return candidate;
         }
     }
+    
+    // Step 6b: Try partial normalized matches (commented out - too restrictive)
+    // TODO: Implement smarter context-based matching instead of length-based restrictions
+    /*
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeTag(candidate);
+        // Only allow if the result is reasonably long and significantly contained
+        if (normalizedResult.length >= 4 && normalizedCandidate.length >= 4) {
+            if (normalizedResult.includes(normalizedCandidate) || 
+                (normalizedCandidate.includes(normalizedResult) && normalizedResult.length >= normalizedCandidate.length * 0.7)) {
+                console.log(`[TAG-AUTO] Partial normalized match found: "${candidate}" (normalized: "${normalizedCandidate}" in "${normalizedResult}")`);
+                return candidate;
+            }
+        }
+    }
+    */
     
     // Step 7: Try partial word matches
     for (const candidate of candidates) {
