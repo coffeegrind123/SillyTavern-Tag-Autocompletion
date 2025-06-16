@@ -497,36 +497,131 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     return result;
 }
 
-// Helper function to parse LLM tag selection response
+// Helper function to parse LLM tag selection response optimized for Qwen3
 function parseLLMTagSelection(result, candidates) {
-    // Remove thinking tags and extra content first
-    let cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim();
+    // Step 1: Extract content after </think> tag (Qwen3 specific)
+    let cleanResult = result;
     
-    // Extract just the tag selection (look for exact matches in the response)
-    const candidatePattern = candidates.map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
-    const regex = new RegExp(`\\b(${candidatePattern})\\b`, 'gi');
-    const matches = cleanResult.match(regex);
+    // Find the last </think> tag and extract everything after it
+    const thinkEndRegex = /<\/\s*think\s*>/gi;
+    let lastThinkEnd = -1;
+    let match;
+    while ((match = thinkEndRegex.exec(result)) !== null) {
+        lastThinkEnd = match.index + match[0].length;
+    }
     
-    if (matches && matches.length > 0) {
-        // Find the actual candidate that matches (case-insensitive)
-        const firstMatch = matches[0].toLowerCase();
-        const exactMatch = candidates.find(c => c.toLowerCase() === firstMatch);
-        if (exactMatch) {
-            console.log(`[TAG-AUTO] Parsed LLM response: "${result.substring(0, 50)}..." → "${exactMatch}"`);
-            return exactMatch;
+    if (lastThinkEnd !== -1) {
+        cleanResult = result.substring(lastThinkEnd).trim();
+        console.log(`[TAG-AUTO] Extracted post-think content: "${cleanResult}"`);
+    }
+    
+    // Step 2: Additional cleaning for any remaining artifacts
+    cleanResult = cleanResult
+        .replace(/<\s*think[\s>][\s\S]*?<\/\s*think\s*>/gi, '') // Remove any remaining think blocks
+        .replace(/```[\s\S]*?```/gi, '') // Remove code blocks
+        .replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
+        .replace(/^#{1,6}\s*/gm, '') // Remove markdown headers
+        .trim();
+    
+    if (!cleanResult) {
+        console.warn(`[TAG-AUTO] Empty result after cleaning, using first candidate: "${candidates[0]}"`);
+        return candidates[0];
+    }
+    
+    // Step 3: Handle multiple tags (comma-separated) from old version logic
+    if (cleanResult.includes(',')) {
+        const selectedTags = cleanResult.split(',')
+            .map(tag => tag.trim())
+            .map(tag => {
+                // Find matching candidate for each tag
+                const normalizedTag = tag.toLowerCase();
+                const match = candidates.find(c => c.toLowerCase() === normalizedTag);
+                return match;
+            })
+            .filter(tag => tag !== undefined);
+        
+        if (selectedTags.length > 0) {
+            console.log(`[TAG-AUTO] Multiple tags found: "${selectedTags.join(', ')}"`);
+            return selectedTags.join(', ');
         }
     }
     
-    // Fallback: try to find any candidate mentioned in the response
+    // Step 4: Normalize function to handle underscore/space variations
+    function normalizeTag(tag) {
+        return tag.toLowerCase()
+            .replace(/[_\s]/g, '') // Remove underscores and spaces
+            .replace(/[^\w]/g, ''); // Remove all non-alphanumeric
+    }
+    
+    // Step 5: Try exact matches first (most reliable)
     for (const candidate of candidates) {
-        if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
-            console.log(`[TAG-AUTO] Fallback match found: "${candidate}" in response`);
+        // Check for exact word boundary matches
+        const escapedCandidate = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        const exactRegex = new RegExp(`\\b${escapedCandidate}\\b`, 'gi');
+        if (exactRegex.test(cleanResult)) {
+            console.log(`[TAG-AUTO] Exact match found: "${candidate}"`);
             return candidate;
         }
     }
     
+    // Step 6: Try normalized matches (handles underscore/space differences)
+    const normalizedResult = normalizeTag(cleanResult);
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeTag(candidate);
+        if (normalizedResult.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedResult)) {
+            console.log(`[TAG-AUTO] Normalized match found: "${candidate}" (normalized: "${normalizedCandidate}" in "${normalizedResult}")`);
+            return candidate;
+        }
+    }
+    
+    // Step 7: Try partial word matches
+    for (const candidate of candidates) {
+        if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
+            console.log(`[TAG-AUTO] Partial match found: "${candidate}"`);
+            return candidate;
+        }
+        // Also try the reverse - candidate contains the result
+        if (candidate.toLowerCase().includes(cleanResult.toLowerCase()) && cleanResult.length >= 3) {
+            console.log(`[TAG-AUTO] Reverse partial match found: "${candidate}" contains "${cleanResult}"`);
+            return candidate;
+        }
+    }
+    
+    // Step 8: Extract potential tag from last line/word
+    const lines = cleanResult.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const lastLine = lines[lines.length - 1] || '';
+    const words = lastLine.split(/\s+/);
+    const lastWord = words[words.length - 1] || '';
+    
+    // Check if last word/line matches any candidate
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeTag(candidate);
+        const normalizedLastWord = normalizeTag(lastWord);
+        const normalizedLastLine = normalizeTag(lastLine);
+        
+        if (normalizedLastWord === normalizedCandidate || normalizedLastLine === normalizedCandidate) {
+            console.log(`[TAG-AUTO] Last word/line match: "${candidate}" from "${lastLine}"`);
+            return candidate;
+        }
+    }
+    
+    // Step 9: Try matching individual words in the result against candidates
+    const resultWords = cleanResult.toLowerCase().split(/\s+/);
+    for (const candidate of candidates) {
+        const candidateWords = candidate.toLowerCase().split(/[\s_]+/);
+        
+        // Check if any candidate word appears in result words
+        for (const candidateWord of candidateWords) {
+            if (candidateWord.length >= 3 && resultWords.some(word => 
+                normalizeTag(word) === normalizeTag(candidateWord))) {
+                console.log(`[TAG-AUTO] Word component match: "${candidate}" (matched word: "${candidateWord}")`);
+                return candidate;
+            }
+        }
+    }
+    
     // Last resort: return first candidate
-    console.warn(`[TAG-AUTO] Could not parse LLM response: "${result}" - using first candidate: "${candidates[0]}"`);
+    console.warn(`[TAG-AUTO] Could not parse LLM response: "${result.substring(0, 200)}..." - using first candidate: "${candidates[0]}"`);
     return candidates[0];
 }
 
@@ -586,9 +681,33 @@ async function selectBestTagForCharacter(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the character context and choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
-Return ONLY ONE tag name. No explanations.`;
+CHARACTER CONTEXT:
+Character: ${character.name}
+Description: ${character.description}
+
+AVAILABLE CANDIDATES: ${candidates.join(', ')}
+
+SELECTION CRITERIA:
+- Choose the tag that best represents the visual concept of "${originalTag}"
+- Consider the specific character description and attributes
+- Prioritize tags that match the character's visual elements
+- Select tags appropriate for character/portrait generation
+- Focus on what IS visible, present, and actively described
+- Use character context to inform the most fitting visual representation
+
+CRITICAL RULES:
+- Return ONLY ONE tag name from the candidates list
+- Use only the exact tag text from the candidates (no variations)
+- Select tags semantically closest to "${originalTag}"
+- Prioritize exact semantic matches over partial matches
+- Reject character names, franchises, or other contextually inappropriate tags
+- For compound concepts, prefer tags that capture the core visual meaning
+- Only combine multiple tags if they together represent the original concept better than any single tag
+- No explanations, reasoning, or additional text
+
+OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if multiple), nothing else.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
@@ -607,9 +726,32 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the last message context and choose the most appropriate tag that matches the visual concept described. Do not stop until you have identified the optimal tag choice.
 
-Return ONLY ONE tag name. No explanations.`;
+LAST MESSAGE CONTEXT: "${lastMessage.mes}"
+
+AVAILABLE CANDIDATES: ${candidates.join(', ')}
+
+SELECTION CRITERIA:
+- Choose the tag that best represents the visual concept of "${originalTag}"
+- Consider the specific visual details from the last message
+- Prioritize tags that match visual elements described in the recent content
+- Select tags appropriate for last message generation (limited context)
+- Focus on what IS visible, present, and actively described in the latest interaction
+- Emphasize immediate visual details from the message content
+
+CRITICAL RULES:
+- Return ONLY ONE tag name from the candidates list
+- Use only the exact tag text from the candidates (no variations)
+- Select tags semantically closest to "${originalTag}"
+- Prioritize exact semantic matches over partial matches
+- Reject character names, franchises, or other contextually inappropriate tags
+- For compound concepts, prefer tags that capture the core visual meaning
+- Only combine multiple tags if they together represent the original concept better than any single tag
+- Context is for image generation - focus on visual, descriptive elements
+- No explanations, reasoning, or additional text
+
+OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if multiple), nothing else.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
@@ -637,9 +779,34 @@ async function selectBestTagForScenario(candidates, originalTag) {
         .map(msg => `${msg.name}: ${msg.mes}`)
         .join('\n');
 
-    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the scenario context from recent conversation and choose the most appropriate tag that matches the environmental and scene-based visual concept. Do not stop until you have identified the optimal tag choice.
 
-Return ONLY ONE tag name. No explanations.`;
+RECENT CONVERSATION CONTEXT:
+${conversationContext}
+
+AVAILABLE CANDIDATES: ${candidates.join(', ')}
+
+SELECTION CRITERIA:
+- Choose the tag that best represents the visual concept of "${originalTag}"
+- Consider the broader scenario context from the recent conversation
+- Prioritize tags that match environmental and scene elements
+- Select tags appropriate for scenario/world generation (comprehensive context)
+- Focus on what IS visible, present, and actively described in the scene
+- Emphasize environmental details, setting, atmosphere, and overall composition
+- Consider multiple character interactions and scene dynamics
+
+CRITICAL RULES:
+- Return ONLY ONE tag name from the candidates list
+- Use only the exact tag text from the candidates (no variations)
+- Select tags semantically closest to "${originalTag}"
+- Prioritize exact semantic matches over partial matches
+- Reject character names, franchises, or other contextually inappropriate tags
+- For compound concepts, prefer tags that capture the core visual meaning
+- Only combine multiple tags if they together represent the original concept better than any single tag
+- Context is for image generation - focus on visual, descriptive elements
+- No explanations, reasoning, or additional text
+
+OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if multiple), nothing else.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
@@ -652,9 +819,26 @@ Return ONLY ONE tag name. No explanations.`;
 
 // Generic tag selection fallback
 async function selectBestTagGeneric(candidates, originalTag) {
-    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the visual concept and choose the most appropriate tag that matches the intended meaning. Do not stop until you have identified the optimal tag choice.
 
-Return ONLY ONE tag name. No explanations.`;
+AVAILABLE CANDIDATES: ${candidates.join(', ')}
+
+SELECTION CRITERIA:
+- Choose the tag that best represents the visual concept of "${originalTag}"
+- Consider general visual meaning and common usage
+- Prioritize tags that match the intended visual representation
+- Select tags appropriate for generic/flexible generation contexts
+- Focus on what IS visible, present, and actively described
+- Use standard danbooru/e621 tag conventions
+
+CRITICAL RULES:
+- Return ONLY ONE tag name from the candidates list
+- Use only the exact tag text from the candidates (no variations)
+- No explanations, reasoning, or additional text
+- Tag must match exactly as provided in candidates
+- Choose the most universally appropriate option
+
+OUTPUT FORMAT: Return only the selected tag name, nothing else.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
@@ -666,9 +850,38 @@ Return ONLY ONE tag name. No explanations.`;
 
 // Tag selection for user character generation (/sd me - USER mode)
 async function selectBestTagForUser(candidates, originalTag) {
-    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
+    const context = globalContext;
+    const userName = context.name1 || 'User';
+    
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the user character context and choose the most appropriate tag that matches the visual concept for user representation. Do not stop until you have identified the optimal tag choice.
 
-Return ONLY ONE tag name. No explanations.`;
+USER CONTEXT:
+User: ${userName} (human user/player character)
+Context: Describing the human user in the scene
+
+AVAILABLE CANDIDATES: ${candidates.join(', ')}
+
+SELECTION CRITERIA:
+- Choose the tag that best represents the visual concept of "${originalTag}"
+- Consider user/player character context and perspective
+- Prioritize tags that match user-focused visual elements
+- Select tags appropriate for user character generation
+- Focus on what IS visible, present, and actively described
+- Emphasize personal character details and user-specific attributes
+- Consider the user's role in the interaction
+
+CRITICAL RULES:
+- Return ONLY ONE tag name from the candidates list
+- Use only the exact tag text from the candidates (no variations)
+- Select tags semantically closest to "${originalTag}"
+- Prioritize exact semantic matches over partial matches
+- Reject character names, franchises, or other contextually inappropriate tags
+- For compound concepts, prefer tags that capture the core visual meaning
+- Only combine multiple tags if they together represent the original concept better than any single tag
+- Context is for image generation - focus on visual, descriptive elements
+- No explanations, reasoning, or additional text
+
+OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if multiple), nothing else.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
@@ -681,9 +894,37 @@ Return ONLY ONE tag name. No explanations.`;
 
 // Tag selection for background generation (/sd background - BACKGROUND mode)
 async function selectBestTagForBackground(candidates, originalTag) {
-    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
+    const context = globalContext;
+    const character = context.characters[context.characterId];
+    
+    const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Analyze the background/environmental context and choose the most appropriate tag that matches the environmental visual concept. Do not stop until you have identified the optimal tag choice.
 
-Return ONLY ONE tag name. No explanations.`;
+BACKGROUND/ENVIRONMENT GENERATION CONTEXT:
+Setting: ${character ? character.scenario || 'General setting' : 'Background environment'}
+
+AVAILABLE CANDIDATES: ${candidates.join(', ')}
+
+SELECTION CRITERIA:
+- Choose the tag that best represents the visual concept of "${originalTag}"
+- Consider background and environmental context specifically
+- Prioritize tags that match environmental, architectural, and atmospheric elements
+- Select tags appropriate for background/environment generation
+- Focus on what IS visible, present, and actively described in the setting
+- Emphasize location details, lighting, weather, and environmental atmosphere
+- Consider spatial elements, structures, and ambient features
+
+CRITICAL RULES:
+- Return ONLY ONE tag name from the candidates list
+- Use only the exact tag text from the candidates (no variations)
+- Select tags semantically closest to "${originalTag}"
+- Prioritize exact semantic matches over partial matches
+- Reject character names, franchises, or other contextually inappropriate tags
+- For compound concepts, prefer tags that capture the core visual meaning
+- Only combine multiple tags if they together represent the original concept better than any single tag
+- Context is for image generation - focus on visual, descriptive elements
+- No explanations, reasoning, or additional text
+
+OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if multiple), nothing else.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
