@@ -19,6 +19,12 @@ const REQUIRED_PROFILE_NAME = 'tag_autocompletion';
 let profileCheckPassed = false;
 let profileSwitchInProgress = false;
 
+// Emergency reset function for stuck profile switches
+function resetProfileSwitchState() {
+    console.log('[TAG-AUTO] Emergency reset of profile switch state');
+    profileSwitchInProgress = false;
+}
+
 // Profile management functions
 function checkProfileExists() {
     const profiles = globalContext.extensionSettings?.connectionManager?.profiles || [];
@@ -36,10 +42,17 @@ async function withTagProfile(asyncOperation) {
         throw new Error(`Profile "${REQUIRED_PROFILE_NAME}" not available`);
     }
     
-    // Wait for any ongoing profile switch to complete
-    while (profileSwitchInProgress) {
+    // Wait for any ongoing profile switch to complete with timeout
+    let waitCount = 0;
+    while (profileSwitchInProgress && waitCount < 50) { // Max 5 seconds
         console.log('[TAG-AUTO] Waiting for ongoing profile switch to complete...');
         await new Promise(resolve => setTimeout(resolve, 100));
+        waitCount++;
+    }
+    
+    if (profileSwitchInProgress && waitCount >= 50) {
+        console.error('[TAG-AUTO] Profile switch timeout - forcing reset');
+        profileSwitchInProgress = false;
     }
     
     profileSwitchInProgress = true;
@@ -240,9 +253,7 @@ Examples:
 Return ONLY a comma-separated list of words. No explanations.`;
 
     try {
-        const result = await withTagProfile(async () => {
-            return await globalContext.generateQuietPrompt(prompt, false, false);
-        });
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
         // Remove thinking tags and explanatory content
         const cleanResult = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -327,9 +338,7 @@ Examples:
 Answer ONLY "YES" or "NO".`;
 
     try {
-        const result = await withTagProfile(async () => {
-            return await globalContext.generateQuietPrompt(prompt, false, false);
-        });
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
         const answer = result.trim().toUpperCase().replace(/[^\w]/g, '');
         console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer}`);
@@ -367,9 +376,7 @@ ${originalTag.includes('_') ?
 Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
 
     try {
-        const result = await withTagProfile(async () => {
-            return await globalContext.generateQuietPrompt(prompt, false, false);
-        });
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
         const answer = result.trim().toUpperCase().replace(/[^\w]/g, '');
         console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer}`);
@@ -581,9 +588,7 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
     }
 
-    const result = await withTagProfile(async () => {
-        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    });
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -655,9 +660,7 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
-    const result = await withTagProfile(async () => {
-        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    });
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -681,9 +684,7 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
-    const result = await withTagProfile(async () => {
-        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    });
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -711,9 +712,7 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
-    const result = await withTagProfile(async () => {
-        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    });
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -742,13 +741,15 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
-    const result = await withTagProfile(async () => {
-        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
-    });
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
 // Main tag correction function
+// Architecture: Single profile switch for entire batch operation
+// - Avoids hundreds of profile switches per prompt
+// - Prevents race conditions and infinite loops
+// - Much more efficient and reliable
 async function correctTagsWithContext(prompt, generationType) {
     console.log('[TAG-AUTO] Extension enabled check:', extensionSettings.enabled);
     
@@ -761,6 +762,15 @@ async function correctTagsWithContext(prompt, generationType) {
     console.log('[TAG-AUTO] Original prompt:', prompt);
     console.log('[TAG-AUTO] Generation type:', generationType);
 
+    // Switch to tag profile once for the entire operation
+    console.log('[TAG-AUTO] Switching to tag profile for batch processing');
+    return await withTagProfile(async () => {
+        return await processTagsInBatch(prompt, generationType);
+    });
+}
+
+// Process all tags under a single profile switch
+async function processTagsInBatch(prompt, generationType) {
     // Clean the prompt by removing thinking tags and explanatory content
     let cleanPrompt = prompt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
     
@@ -809,8 +819,8 @@ async function correctTagsWithContext(prompt, generationType) {
         }
     }
     
-    // Remove any leading/trailing punctuation
-    cleanPrompt = cleanPrompt.replace(/^[^a-zA-Z0-9_]*/, '').replace(/[^a-zA-Z0-9_\s,]*$/, '');
+    // Remove any leading/trailing punctuation but preserve special tags like [ASPECT:tall]
+    cleanPrompt = cleanPrompt.replace(/^[^a-zA-Z0-9_\[\]]*/, '').replace(/[^a-zA-Z0-9_\s,\[\]:]*$/, '');
     
     console.log('[TAG-AUTO] Cleaned prompt:', cleanPrompt);
 
@@ -902,7 +912,7 @@ async function correctTagsWithContext(prompt, generationType) {
     
     const result = uniqueTags.join(', ');
     
-    console.log('[TAG-AUTO] Tag correction completed!');
+    console.log('[TAG-AUTO] Batch processing completed!');
     console.log('[TAG-AUTO] FINAL RESULT:', result);
     
     return result;
@@ -1242,6 +1252,9 @@ const init = async () => {
         console.error('Tag Autocompletion: Failed to initialize extension:', error);
     }
 };
+
+// Expose emergency reset function globally for debugging
+window.tagAutoResetProfileSwitch = resetProfileSwitchState;
 
 // Initialize the extension
 await init();
