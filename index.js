@@ -14,11 +14,98 @@ const defaultSettings = {
     debug: false
 };
 
+// Profile management constants
+const REQUIRED_PROFILE_NAME = 'tag_autocompletion';
+let profileCheckPassed = false;
+
+// Profile management functions
+function checkProfileExists() {
+    const profiles = globalContext.extensionSettings?.connectionManager?.profiles || [];
+    return profiles.find(profile => profile.name === REQUIRED_PROFILE_NAME);
+}
+
+function getCurrentProfile() {
+    const profiles = globalContext.extensionSettings?.connectionManager?.profiles || [];
+    const selectedProfileId = globalContext.extensionSettings?.connectionManager?.selectedProfile;
+    return profiles.find(profile => profile.id === selectedProfileId);
+}
+
+async function withTagProfile(asyncOperation) {
+    if (!profileCheckPassed) {
+        throw new Error(`Profile "${REQUIRED_PROFILE_NAME}" not available`);
+    }
+    
+    // Store current profile
+    const originalProfile = getCurrentProfile();
+    
+    try {
+        // Switch to tag profile
+        if (window.SlashCommandParser?.commands?.['profile']) {
+            await window.SlashCommandParser.commands['profile'].callback(
+                window.getNamedArguments ? window.getNamedArguments() : {}, 
+                REQUIRED_PROFILE_NAME
+            );
+        }
+        
+        // Execute the operation
+        const result = await asyncOperation();
+        
+        return result;
+    } finally {
+        // Always restore original profile
+        if (originalProfile) {
+            try {
+                if (window.SlashCommandParser?.commands?.['profile']) {
+                    await window.SlashCommandParser.commands['profile'].callback(
+                        window.getNamedArguments ? window.getNamedArguments() : {}, 
+                        originalProfile.name
+                    );
+                }
+            } catch (error) {
+                console.warn('[TAG-AUTO] Failed to restore original profile:', error);
+            }
+        }
+    }
+}
+
+function showProfileError() {
+    const message = `Tag Autocompletion requires a connection profile named "${REQUIRED_PROFILE_NAME}".
+
+Please create this profile:
+1. Go to API Connections → Connection Profiles
+2. Create a new profile named exactly "${REQUIRED_PROFILE_NAME}"
+3. Configure it with your preferred API settings for tag autocompletion
+4. Try enabling this extension again
+
+The extension will only use this profile for its own operations.`;
+
+    if (window.toastr) {
+        window.toastr.error(message, 'Profile Required', { 
+            timeOut: 0, 
+            extendedTimeOut: 0,
+            closeButton: true 
+        });
+    } else {
+        alert(message);
+    }
+}
+
 // Initialize extension settings
 function loadSettings() {
     globalContext.extensionSettings[extensionName] = Object.assign({}, defaultSettings, globalContext.extensionSettings[extensionName]);
     extensionSettings = globalContext.extensionSettings[extensionName];
     globalContext.saveSettingsDebounced();
+    
+    // Check for required profile
+    const requiredProfile = checkProfileExists();
+    profileCheckPassed = !!requiredProfile;
+    
+    if (extensionSettings.debug) {
+        console.log(`[TAG-AUTO] Profile check: ${profileCheckPassed ? 'PASSED' : 'FAILED'}`);
+        if (requiredProfile) {
+            console.log(`[TAG-AUTO] Found required profile:`, requiredProfile);
+        }
+    }
 }
 
 // Save settings
@@ -86,7 +173,10 @@ Examples:
 Return ONLY a comma-separated list of words. No explanations.`;
 
     try {
-        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        const result = await withTagProfile(async () => {
+            return await globalContext.generateQuietPrompt(prompt, false, false);
+        });
+        
         const terms = result.trim()
             .split(/[,\n]/)
             .map(term => term.trim().replace(/['"()\[\]*]/g, ''))
@@ -167,9 +257,11 @@ Examples:
 Answer ONLY "YES" or "NO".`;
 
     try {
-        const result = await globalContext.generateQuietPrompt(prompt, false, false);
-        const answer = result.trim().toUpperCase();
+        const result = await withTagProfile(async () => {
+            return await globalContext.generateQuietPrompt(prompt, false, false);
+        });
         
+        const answer = result.trim().toUpperCase();
         console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer}`);
         
         return answer === 'YES';
@@ -205,9 +297,11 @@ ${originalTag.includes('_') ?
 Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
 
     try {
-        const result = await globalContext.generateQuietPrompt(prompt, false, false);
-        const answer = result.trim().toUpperCase();
+        const result = await withTagProfile(async () => {
+            return await globalContext.generateQuietPrompt(prompt, false, false);
+        });
         
+        const answer = result.trim().toUpperCase();
         console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer}`);
         
         return answer === 'YES';
@@ -417,7 +511,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await withTagProfile(async () => {
+        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    });
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -489,7 +585,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await withTagProfile(async () => {
+        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    });
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -513,7 +611,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await withTagProfile(async () => {
+        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    });
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -541,7 +641,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await withTagProfile(async () => {
+        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    });
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -570,7 +672,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    const result = await withTagProfile(async () => {
+        return await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    });
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -777,7 +881,16 @@ function onExtensionDisabled() {
 
 // Settings UI handlers
 function onEnabledInput() {
-    extensionSettings.enabled = $('#tag_autocomplete_enabled').prop('checked');
+    const isEnabled = $('#tag_autocomplete_enabled').prop('checked');
+    
+    if (isEnabled && !profileCheckPassed) {
+        // Prevent enabling if profile doesn't exist
+        $('#tag_autocomplete_enabled').prop('checked', false);
+        showProfileError();
+        return;
+    }
+    
+    extensionSettings.enabled = isEnabled;
     saveSettings();
     
     if (extensionSettings.enabled) {
@@ -803,6 +916,33 @@ function onTimeoutInput() {
 function onDebugInput() {
     extensionSettings.debug = $('#tag_autocomplete_debug').prop('checked');
     saveSettings();
+}
+
+// Refresh profile check
+function refreshProfileCheck() {
+    const requiredProfile = checkProfileExists();
+    profileCheckPassed = !!requiredProfile;
+    
+    const status = $('#tag_autocomplete_profile_status');
+    if (profileCheckPassed) {
+        status.removeClass('warning_message').addClass('success_message')
+            .text(`✓ Profile "${REQUIRED_PROFILE_NAME}" found`);
+    } else {
+        status.removeClass('success_message').addClass('warning_message')
+            .text(`✗ Profile "${REQUIRED_PROFILE_NAME}" not found`);
+    }
+    
+    // Disable extension if profile is missing
+    if (!profileCheckPassed && extensionSettings.enabled) {
+        extensionSettings.enabled = false;
+        $('#tag_autocomplete_enabled').prop('checked', false);
+        saveSettings();
+        onExtensionDisabled();
+    }
+    
+    if (extensionSettings.debug) {
+        console.log(`[TAG-AUTO] Profile check refreshed: ${profileCheckPassed ? 'PASSED' : 'FAILED'}`);
+    }
 }
 
 // Test connection function
@@ -881,13 +1021,19 @@ async function loadExtensionHTML() {
                 </div>
                 <div class="flex-container">
                     <button id="tag_autocomplete_test_btn" class="menu_button" type="button">Test Connection</button>
+                    <button id="tag_autocomplete_refresh_profile" class="menu_button" type="button">Check Profile</button>
                 </div>
                 <div class="flex-container">
                     <small id="tag_autocomplete_test_status"></small>
                 </div>
+                <div class="flex-container">
+                    <small id="tag_autocomplete_profile_status"></small>
+                </div>
                 <small class="notes">
-                    <strong>Note:</strong> This extension requires a running Tag Autocompletion API server. 
-                    The extension will automatically correct Danbooru tags in image generation prompts using context-aware selection.
+                    <strong>Requirements:</strong>
+                    <br>1. A running Tag Autocompletion API server
+                    <br>2. A connection profile named "${REQUIRED_PROFILE_NAME}" configured with your preferred API for LLM calls
+                    <br><br>The extension will automatically correct Danbooru tags in image generation prompts using context-aware selection.
                 </small>
             </div>
         </div>
@@ -902,12 +1048,16 @@ async function loadExtensionHTML() {
     $('#tag_autocomplete_timeout').on('input', onTimeoutInput);
     $('#tag_autocomplete_debug').on('input', onDebugInput);
     $('#tag_autocomplete_test_btn').on('click', testConnection);
+    $('#tag_autocomplete_refresh_profile').on('click', refreshProfileCheck);
     
     // Load current settings into UI
     $('#tag_autocomplete_enabled').prop('checked', extensionSettings.enabled);
     $('#tag_autocomplete_api_endpoint').val(extensionSettings.apiEndpoint);
     $('#tag_autocomplete_timeout').val(extensionSettings.timeout);
     $('#tag_autocomplete_debug').prop('checked', extensionSettings.debug);
+    
+    // Show initial profile status
+    setTimeout(refreshProfileCheck, 100);
 }
 
 // Extension initialization
