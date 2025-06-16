@@ -9,7 +9,7 @@ let extensionSettings = {};
 const defaultSettings = {
     enabled: false,
     apiEndpoint: 'http://localhost:8000',
-    timeout: 5000,
+    timeout: 10000, // Increased to 10 seconds
     candidateLimit: 20,
     debug: false
 };
@@ -839,8 +839,15 @@ async function processTagsInBatch(prompt, generationType) {
     console.log(`[TAG-AUTO] Processing ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
     console.log('[TAG-AUTO] Tags to process:', tags);
 
-    // Process all tags in parallel
-    const tagPromises = tags.map(async (tag) => {
+    // Process tags in smaller batches to avoid overwhelming the API
+    const BATCH_SIZE = 3; // Process max 3 tags concurrently
+    const correctedTags = [];
+    
+    for (let i = 0; i < tags.length; i += BATCH_SIZE) {
+        const batch = tags.slice(i, i + BATCH_SIZE);
+        console.log(`[TAG-AUTO] Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(tags.length/BATCH_SIZE)} (${batch.length} tags)`);
+        
+        const batchPromises = batch.map(async (tag) => {
         try {
             console.log(`[TAG-AUTO] Processing tag: "${tag}"`);
             
@@ -905,9 +912,16 @@ async function processTagsInBatch(prompt, generationType) {
             console.warn(`[TAG-AUTO] Tag processing failed for "${tag}":`, error);
             return tag; // Always fallback to original
         }
-    });
-    
-    const correctedTags = await Promise.all(tagPromises);
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        correctedTags.push(...batchResults);
+        
+        // Add small delay between batches to further reduce API load
+        if (i + BATCH_SIZE < tags.length) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
     
     // Flatten and deduplicate tags
     const flattenedTags = correctedTags.flatMap(tag => 
