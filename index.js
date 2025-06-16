@@ -226,10 +226,13 @@ Return ONLY a comma-separated list of words. No explanations.`;
             return await globalContext.generateQuietPrompt(prompt, false, false);
         });
         
-        const terms = result.trim()
+        // Remove thinking tags and explanatory content
+        const cleanResult = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        
+        const terms = cleanResult
             .split(/[,\n]/)
             .map(term => term.trim().replace(/['"()\[\]*]/g, ''))
-            .filter(term => term.length > 0 && term !== originalTag && !term.includes('Note:') && !term.includes('derived'));
+            .filter(term => term.length > 0 && term !== originalTag);
         
         console.log(`[TAG-AUTO] Generated fallback terms for "${originalTag}":`, terms);
         
