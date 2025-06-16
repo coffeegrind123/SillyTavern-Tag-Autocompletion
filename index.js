@@ -499,23 +499,35 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
 
 // Helper function to parse LLM tag selection response
 function parseLLMTagSelection(result, candidates) {
-    const trimmed = result.trim().toLowerCase();
+    // Remove thinking tags and extra content first
+    let cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim();
     
-    // Handle multiple tags (comma-separated)
-    if (trimmed.includes(',')) {
-        const selectedTags = trimmed.split(',')
-            .map(tag => tag.trim())
-            .map(tag => candidates.find(c => c.toLowerCase() === tag))
-            .filter(tag => tag !== undefined);
-        
-        if (selectedTags.length > 0) {
-            return selectedTags.join(', ');
+    // Extract just the tag selection (look for exact matches in the response)
+    const candidatePattern = candidates.map(c => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|');
+    const regex = new RegExp(`\\b(${candidatePattern})\\b`, 'gi');
+    const matches = cleanResult.match(regex);
+    
+    if (matches && matches.length > 0) {
+        // Find the actual candidate that matches (case-insensitive)
+        const firstMatch = matches[0].toLowerCase();
+        const exactMatch = candidates.find(c => c.toLowerCase() === firstMatch);
+        if (exactMatch) {
+            console.log(`[TAG-AUTO] Parsed LLM response: "${result.substring(0, 50)}..." → "${exactMatch}"`);
+            return exactMatch;
         }
     }
     
-    // Single tag match
-    const match = candidates.find(c => c.toLowerCase() === trimmed);
-    return match || candidates[0];
+    // Fallback: try to find any candidate mentioned in the response
+    for (const candidate of candidates) {
+        if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
+            console.log(`[TAG-AUTO] Fallback match found: "${candidate}" in response`);
+            return candidate;
+        }
+    }
+    
+    // Last resort: return first candidate
+    console.warn(`[TAG-AUTO] Could not parse LLM response: "${result}" - using first candidate: "${candidates[0]}"`);
+    return candidates[0];
 }
 
 // Context-aware tag selection using SillyTavern's LLM
@@ -574,20 +586,9 @@ async function selectBestTagForCharacter(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Character: ${character.name}
-Description: ${character.description}
+    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
 
-Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
-
-RULES:
-1. Select tags semantically closest to "${originalTag}"
-2. Prioritize exact semantic matches over partial matches
-3. Reject character names, franchises, or other contextually inappropriate tags
-4. For compound concepts, prefer tags that capture the core visual meaning
-5. Only combine multiple tags if they together represent the original concept better than any single tag
-6. Context is for image generation - focus on visual, descriptive elements
-
-Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
+Return ONLY ONE tag name. No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
@@ -606,19 +607,9 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
-    const selectionPrompt = `Context: "${lastMessage.mes}"
+    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
 
-Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
-
-RULES:
-1. Select tags that are semantically closest to "${originalTag}"
-2. Prioritize exact semantic matches over partial matches
-3. Reject character names, franchises, or other contextually inappropriate tags
-4. For compound concepts, prefer tags that capture the core visual meaning
-5. Only combine multiple tags if they together represent the original concept better than any single tag
-6. Context is for image generation - focus on visual, descriptive elements
-
-Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
+Return ONLY ONE tag name. No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
@@ -646,20 +637,9 @@ async function selectBestTagForScenario(candidates, originalTag) {
         .map(msg => `${msg.name}: ${msg.mes}`)
         .join('\n');
 
-    const selectionPrompt = `Recent conversation context:
-${conversationContext}
+    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
 
-Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
-
-RULES:
-1. Select tags semantically closest to "${originalTag}"
-2. Prioritize exact semantic matches over partial matches
-3. Reject character names, franchises, or other contextually inappropriate tags
-4. For compound concepts, prefer tags that capture the core visual meaning
-5. Only combine multiple tags if they together represent the original concept better than any single tag
-6. Context is for image generation - focus on visual, descriptive elements
-
-Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
+Return ONLY ONE tag name. No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
@@ -672,18 +652,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
 
 // Generic tag selection fallback
 async function selectBestTagGeneric(candidates, originalTag) {
-    const selectionPrompt = `Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
+    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
 
-RULES:
-1. Select tags semantically closest to "${originalTag}"
-2. Reject character names, franchises, or unrelated concepts
-3. For descriptive tags, prioritize visual elements
-4. Only combine tags if they together better represent the original concept
-5. When unsure, choose the most contextually appropriate single tag
-
-This is for image generation - focus on visual, descriptive elements.
-
-Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
+Return ONLY ONE tag name. No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
@@ -695,23 +666,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
 
 // Tag selection for user character generation (/sd me - USER mode)
 async function selectBestTagForUser(candidates, originalTag) {
-    const context = globalContext;
-    const userName = context.name1 || 'User';
-    
-    const selectionPrompt = `User: ${userName} (human user/player character)
-Context: Describing the human user in the scene
+    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
 
-Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
-
-RULES:
-1. Select tags semantically closest to "${originalTag}"
-2. Prioritize exact semantic matches over partial matches
-3. Reject character names, franchises, or other contextually inappropriate tags
-4. For compound concepts, prefer tags that capture the core visual meaning
-5. Only combine multiple tags if they together represent the original concept better than any single tag
-6. Context is for image generation - focus on visual, descriptive elements
-
-Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
+Return ONLY ONE tag name. No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
@@ -724,23 +681,9 @@ Return ONLY the best tag or tags (comma-separated if multiple). No explanations.
 
 // Tag selection for background generation (/sd background - BACKGROUND mode)
 async function selectBestTagForBackground(candidates, originalTag) {
-    const context = globalContext;
-    const character = context.characters[context.characterId];
-    
-    const selectionPrompt = `Background/Environment generation
-Setting: ${character ? character.scenario || 'General setting' : 'Background environment'}
+    const selectionPrompt = `Pick the BEST tag for "${originalTag}" from: ${candidates.join(', ')}
 
-Choose the best tag(s) that match "${originalTag}" from these candidates: ${candidates.join(', ')}
-
-RULES:
-1. Select tags semantically closest to "${originalTag}"
-2. Prioritize exact semantic matches over partial matches
-3. Reject character names, franchises, or other contextually inappropriate tags
-4. For compound concepts, prefer tags that capture the core visual meaning
-5. Only combine multiple tags if they together represent the original concept better than any single tag
-6. Context is for image generation - focus on visual, descriptive elements
-
-Return ONLY the best tag or tags (comma-separated if multiple). No explanations.`;
+Return ONLY ONE tag name. No explanations.`;
 
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
