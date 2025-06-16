@@ -35,35 +35,60 @@ async function withTagProfile(asyncOperation) {
         throw new Error(`Profile "${REQUIRED_PROFILE_NAME}" not available`);
     }
     
-    // Store current profile
-    const originalProfile = getCurrentProfile();
+    // Get current profile name using invisible slash command callback
+    const getNamedArguments = window.getNamedArguments || (() => ({}));
+    let originalProfileName = null;
     
     try {
-        // Switch to tag profile
-        if (window.SlashCommandParser?.commands?.['profile']) {
-            await window.SlashCommandParser.commands['profile'].callback(
-                window.getNamedArguments ? window.getNamedArguments() : {}, 
-                REQUIRED_PROFILE_NAME
-            );
+        originalProfileName = await window.SlashCommandParser.commands['profile'].callback(getNamedArguments(), '');
+    } catch (error) {
+        console.warn('[TAG-AUTO] Could not get current profile, assuming None');
+        originalProfileName = null;
+    }
+    
+    try {
+        if (extensionSettings.debug) {
+            console.log(`[TAG-AUTO] Switching from profile "${originalProfileName || 'None'}" to "${REQUIRED_PROFILE_NAME}"`);
+        }
+        
+        // Switch to tag profile using invisible slash command callback
+        const args = getNamedArguments({ await: 'true' });
+        await window.SlashCommandParser.commands['profile'].callback(args, REQUIRED_PROFILE_NAME);
+        
+        // Verify profile was switched
+        if (extensionSettings.debug) {
+            const verifyProfile = await window.SlashCommandParser.commands['profile'].callback(getNamedArguments(), '');
+            console.log(`[TAG-AUTO] Current profile after switch: "${verifyProfile || 'None'}"`);
         }
         
         // Execute the operation
         const result = await asyncOperation();
         
         return result;
+    } catch (error) {
+        console.error('[TAG-AUTO] Error in withTagProfile:', error);
+        throw error;
     } finally {
         // Always restore original profile
-        if (originalProfile) {
-            try {
-                if (window.SlashCommandParser?.commands?.['profile']) {
-                    await window.SlashCommandParser.commands['profile'].callback(
-                        window.getNamedArguments ? window.getNamedArguments() : {}, 
-                        originalProfile.name
-                    );
-                }
-            } catch (error) {
-                console.warn('[TAG-AUTO] Failed to restore original profile:', error);
+        try {
+            if (extensionSettings.debug) {
+                console.log(`[TAG-AUTO] Restoring to original profile "${originalProfileName || 'None'}"`);
             }
+            
+            const restoreTarget = (originalProfileName && originalProfileName !== '<None>' && originalProfileName.trim() !== '') 
+                ? originalProfileName 
+                : '<None>';
+            
+            // Restore to original profile using invisible slash command callback
+            const args = getNamedArguments({ await: 'true' });
+            await window.SlashCommandParser.commands['profile'].callback(args, restoreTarget);
+            
+            if (extensionSettings.debug) {
+                const finalProfile = await window.SlashCommandParser.commands['profile'].callback(getNamedArguments(), '');
+                console.log(`[TAG-AUTO] Final profile after restoration: "${finalProfile || 'None'}"`);
+            }
+        } catch (error) {
+            console.warn('[TAG-AUTO] Failed to restore original profile:', error);
         }
     }
 }
