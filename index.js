@@ -502,8 +502,12 @@ async function directLLMCall(prompt) {
     // Get the current context to access settings
     const context = globalContext;
     
-    // Get current profile settings
+    // Get current profile settings - this should be the tag_autocompletion profile when called from within withTagProfile
     const oaiSettings = context.chatCompletionSettings || {};
+    
+    // Debug: Log which profile is being used
+    const currentProfile = getCurrentProfile();
+    console.log(`[TAG-AUTO] directLLMCall using profile: "${currentProfile?.name || 'None'}" with source: "${oaiSettings.chat_completion_source}"`);
     
     if (!oaiSettings.chat_completion_source) {
         throw new Error('[TAG-AUTO] No chat completion source configured in current profile');
@@ -605,47 +609,20 @@ Answer ONLY "YES" if semantically reasonable, or "NO" if contradictory/unrelated
     }
 }
 
-// Helper function to parse LLM tag selection response optimized for Qwen3
+// Helper function to parse LLM tag selection response
 function parseLLMTagSelection(result, candidates) {
-    // Step 1: Extract content after </think> tag (Qwen3 specific)
-    let cleanResult = result;
-    
-    // Find the last </think> tag and extract everything after it
-    const thinkEndRegex = /<\/\s*think\s*>/gi;
-    let lastThinkEnd = -1;
-    let match;
-    while ((match = thinkEndRegex.exec(result)) !== null) {
-        lastThinkEnd = match.index + match[0].length;
-    }
-    
-    if (lastThinkEnd !== -1) {
-        cleanResult = result.substring(lastThinkEnd).trim();
-        console.log(`[TAG-AUTO] Extracted post-think content: "${cleanResult}"`);
-    }
-    
-    // Step 2: Additional cleaning for any remaining artifacts
-    cleanResult = cleanResult
-        .replace(/<\s*think[\s>][\s\S]*?<\/\s*think\s*>/gi, '') // Remove any remaining think blocks
-        .replace(/```[\s\S]*?```/gi, '') // Remove code blocks
-        .replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
-        .replace(/^#{1,6}\s*/gm, '') // Remove markdown headers
-        .trim();
+    // Remove think tags and all content between them
+    let cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim();
     
     if (!cleanResult) {
-        console.warn(`[TAG-AUTO] Empty result after cleaning, using first candidate: "${candidates[0]}"`);
         return candidates[0];
     }
     
-    // Step 3: Handle multiple tags (comma-separated) from old version logic
+    // Handle multiple tags (comma-separated)
     if (cleanResult.includes(',')) {
         const selectedTags = cleanResult.split(',')
             .map(tag => tag.trim())
-            .map(tag => {
-                // Find matching candidate for each tag
-                const normalizedTag = tag.toLowerCase();
-                const match = candidates.find(c => c.toLowerCase() === normalizedTag);
-                return match;
-            })
+            .map(tag => candidates.find(c => c.toLowerCase() === tag.toLowerCase()))
             .filter(tag => tag !== undefined);
         
         if (selectedTags.length > 0) {
@@ -654,100 +631,9 @@ function parseLLMTagSelection(result, candidates) {
         }
     }
     
-    // Step 4: Normalize function to handle underscore/space variations
-    function normalizeTag(tag) {
-        return tag.toLowerCase()
-            .replace(/[_\s]/g, '') // Remove underscores and spaces
-            .replace(/[^\w]/g, ''); // Remove all non-alphanumeric
-    }
-    
-    // Step 5: Try exact matches first (most reliable)
-    for (const candidate of candidates) {
-        // Check for exact word boundary matches
-        const escapedCandidate = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-        const exactRegex = new RegExp(`\\b${escapedCandidate}\\b`, 'gi');
-        if (exactRegex.test(cleanResult)) {
-            console.log(`[TAG-AUTO] Exact match found: "${candidate}"`);
-            return candidate;
-        }
-    }
-    
-    // Step 6: Try normalized matches (handles underscore/space differences)
-    const normalizedResult = normalizeTag(cleanResult);
-    for (const candidate of candidates) {
-        const normalizedCandidate = normalizeTag(candidate);
-        // Exact normalized match (highest priority)
-        if (normalizedResult === normalizedCandidate) {
-            console.log(`[TAG-AUTO] Exact normalized match found: "${candidate}"`);
-            return candidate;
-        }
-    }
-    
-    // Step 6b: Try partial normalized matches (commented out - too restrictive)
-    // TODO: Implement smarter context-based matching instead of length-based restrictions
-    /*
-    for (const candidate of candidates) {
-        const normalizedCandidate = normalizeTag(candidate);
-        // Only allow if the result is reasonably long and significantly contained
-        if (normalizedResult.length >= 4 && normalizedCandidate.length >= 4) {
-            if (normalizedResult.includes(normalizedCandidate) || 
-                (normalizedCandidate.includes(normalizedResult) && normalizedResult.length >= normalizedCandidate.length * 0.7)) {
-                console.log(`[TAG-AUTO] Partial normalized match found: "${candidate}" (normalized: "${normalizedCandidate}" in "${normalizedResult}")`);
-                return candidate;
-            }
-        }
-    }
-    */
-    
-    // Step 7: Try partial word matches
-    for (const candidate of candidates) {
-        if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
-            console.log(`[TAG-AUTO] Partial match found: "${candidate}"`);
-            return candidate;
-        }
-        // Also try the reverse - candidate contains the result
-        if (candidate.toLowerCase().includes(cleanResult.toLowerCase()) && cleanResult.length >= 3) {
-            console.log(`[TAG-AUTO] Reverse partial match found: "${candidate}" contains "${cleanResult}"`);
-            return candidate;
-        }
-    }
-    
-    // Step 8: Extract potential tag from last line/word
-    const lines = cleanResult.split('\n').map(l => l.trim()).filter(l => l.length > 0);
-    const lastLine = lines[lines.length - 1] || '';
-    const words = lastLine.split(/\s+/);
-    const lastWord = words[words.length - 1] || '';
-    
-    // Check if last word/line matches any candidate
-    for (const candidate of candidates) {
-        const normalizedCandidate = normalizeTag(candidate);
-        const normalizedLastWord = normalizeTag(lastWord);
-        const normalizedLastLine = normalizeTag(lastLine);
-        
-        if (normalizedLastWord === normalizedCandidate || normalizedLastLine === normalizedCandidate) {
-            console.log(`[TAG-AUTO] Last word/line match: "${candidate}" from "${lastLine}"`);
-            return candidate;
-        }
-    }
-    
-    // Step 9: Try matching individual words in the result against candidates
-    const resultWords = cleanResult.toLowerCase().split(/\s+/);
-    for (const candidate of candidates) {
-        const candidateWords = candidate.toLowerCase().split(/[\s_]+/);
-        
-        // Check if any candidate word appears in result words
-        for (const candidateWord of candidateWords) {
-            if (candidateWord.length >= 3 && resultWords.some(word => 
-                normalizeTag(word) === normalizeTag(candidateWord))) {
-                console.log(`[TAG-AUTO] Word component match: "${candidate}" (matched word: "${candidateWord}")`);
-                return candidate;
-            }
-        }
-    }
-    
-    // Last resort: return first candidate
-    console.warn(`[TAG-AUTO] Could not parse LLM response: "${result.substring(0, 200)}..." - using first candidate: "${candidates[0]}"`);
-    return candidates[0];
+    // Single tag match
+    const match = candidates.find(c => c.toLowerCase() === cleanResult.toLowerCase());
+    return match || candidates[0];
 }
 
 // Context-aware tag selection using SillyTavern's LLM
