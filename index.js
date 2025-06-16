@@ -834,21 +834,40 @@ function hookImageGeneration() {
         const context = window.SillyTavern?.getContext();
         const eventSource = context?.eventSource;
         
+        console.log('[TAG-AUTO] Debug info:');
+        console.log('[TAG-AUTO] - SillyTavern:', !!window.SillyTavern);
+        console.log('[TAG-AUTO] - getContext:', !!window.SillyTavern?.getContext);
+        console.log('[TAG-AUTO] - context:', !!context);
+        console.log('[TAG-AUTO] - eventSource:', !!eventSource);
+        console.log('[TAG-AUTO] - eventSource type:', typeof eventSource);
+        
         if (eventSource) {
+            // Test if we can listen to any events
+            eventSource.on('message_sent', () => {
+                console.log('[TAG-AUTO] Test event: message_sent fired');
+            });
+            
             eventSource.on('sd_prompt_processing', async (data) => {
-                console.log('[TAG-AUTO] SD prompt processing event triggered');
+                console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
+                console.log('[TAG-AUTO] Event data:', data);
                 console.log('[TAG-AUTO] Original prompt length:', data.prompt?.length || 0);
+                console.log('[TAG-AUTO] Original prompt:', data.prompt);
                 console.log('[TAG-AUTO] Generation type:', data.generationType);
+                console.log('[TAG-AUTO] Extension enabled:', extensionSettings.enabled);
                 
                 if (extensionSettings.enabled && data.prompt) {
                     try {
+                        console.log('[TAG-AUTO] Starting tag correction...');
                         const corrected = await correctTagsWithContext(data.prompt, data.generationType);
                         data.prompt = corrected;
                         
                         console.log('[TAG-AUTO] Prompt correction complete!');
+                        console.log('[TAG-AUTO] Final prompt:', corrected);
                     } catch (error) {
-                        console.warn('[TAG-AUTO] Error during correction:', error);
+                        console.error('[TAG-AUTO] Error during correction:', error);
                     }
+                } else {
+                    console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
                 }
             });
             
@@ -856,6 +875,8 @@ function hookImageGeneration() {
                 console.log('Tag Autocompletion: Successfully hooked into SD prompt processing event');
             }
             return true;
+        } else {
+            console.error('[TAG-AUTO] Failed to get eventSource!');
         }
         return false;
     }
