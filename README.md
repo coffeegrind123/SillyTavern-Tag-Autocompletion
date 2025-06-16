@@ -19,7 +19,7 @@ A SillyTavern extension that provides Danbooru tag validation and correction for
 
 ## Requirements
 
-This extension requires a running [Tag Autocompletion API server.](https://github.com/coffeegrind123/tag-autocompletion-api). The API should implement the following endpoint:
+This extension requires a running Tag Autocompletion API server. The API should implement the following endpoint:
 
 ### API Endpoint: `POST /search_tag`
 
