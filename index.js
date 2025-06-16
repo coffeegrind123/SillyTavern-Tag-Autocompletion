@@ -774,7 +774,7 @@ async function correctTagsWithContext(prompt, generationType) {
     });
 }
 
-// Process all tags under a single profile switch
+// Process all tags under a single profile switch with optimized parallel processing
 async function processTagsInBatch(prompt, generationType) {
     // Clean the prompt by removing thinking tags and explanatory content
     let cleanPrompt = prompt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -833,95 +833,13 @@ async function processTagsInBatch(prompt, generationType) {
     const tags = cleanPrompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
     
     // Get processing strategy based on generation type
-    // const strategy = getProcessingStrategy(generationType);
-    const strategy = getProcessingStrategy();
+    const strategy = getProcessingStrategy(generationType);
     
     console.log(`[TAG-AUTO] Processing ${tags.length} tags, strategy: ${strategy.strategy}, generation type: ${generationType}`);
     console.log('[TAG-AUTO] Tags to process:', tags);
 
-    // Process tags in smaller batches to avoid overwhelming the API
-    const BATCH_SIZE = 3; // Process max 3 tags concurrently
-    const correctedTags = [];
-    
-    for (let i = 0; i < tags.length; i += BATCH_SIZE) {
-        const batch = tags.slice(i, i + BATCH_SIZE);
-        console.log(`[TAG-AUTO] Processing batch ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(tags.length/BATCH_SIZE)} (${batch.length} tags)`);
-        
-        const batchPromises = batch.map(async (tag) => {
-        try {
-            console.log(`[TAG-AUTO] Processing tag: "${tag}"`);
-            
-            // Skip metadata tags in brackets (e.g., "[ASPECT:wide]", "[RESOLUTION:1024x1024]")
-            if (tag.startsWith('[') && tag.endsWith(']')) {
-                console.log(`[TAG-AUTO] Skipping metadata tag: "${tag}"`);
-                return tag;
-            }
-            
-            // Handle mixed metadata + tag (e.g., "[ASPECT:square] padded_room")
-            if (tag.includes('[') && tag.includes(']')) {
-                const metadataMatch = tag.match(/(\[.*?\])\s*(.+)/);
-                if (metadataMatch) {
-                    const [, metadata, actualTag] = metadataMatch;
-                    console.log(`[TAG-AUTO] Processing mixed tag: metadata="${metadata}" tag="${actualTag}"`);
-                    
-                    // Process the actual tag part
-                    const response = await searchTagCandidatesWithFallback(actualTag, strategy.candidateLimit);
-                    
-                    if (response.candidates && response.candidates.length > 0) {
-                        console.log(`[TAG-AUTO] API returned ${response.candidates.length} candidates for "${actualTag}": [${response.candidates.join(', ')}]`);
-                        
-                        const bestTag = await selectBestTagWithContext(
-                            response.candidates, 
-                            actualTag, 
-                            generationType
-                        );
-                        
-                        console.log(`[TAG-AUTO] LLM selected best tag for "${actualTag}": "${bestTag}"`);
-                        return `${metadata} ${bestTag}`; // Recombine with metadata
-                    } else {
-                        console.log(`[TAG-AUTO] No candidates found for "${actualTag}", keeping original`);
-                        return tag;
-                    }
-                }
-            }
-            
-            // Skip tags that are likely weights/parameters (e.g., "(from_side:1.1)")
-            if (tag.includes(':') && tag.includes('(')) {
-                console.log(`[TAG-AUTO] Skipping parameter tag: "${tag}"`);
-                return tag;
-            }
-
-            const response = await searchTagCandidatesWithFallback(tag, strategy.candidateLimit);
-            
-            if (response.candidates && response.candidates.length > 0) {
-                console.log(`[TAG-AUTO] API returned ${response.candidates.length} candidates for "${tag}": [${response.candidates.join(', ')}]`);
-                
-                const bestTag = await selectBestTagWithContext(
-                    response.candidates, 
-                    tag, 
-                    generationType
-                );
-                
-                console.log(`[TAG-AUTO] LLM selected best tag for "${tag}": "${bestTag}"`);
-                return bestTag;
-            } else {
-                console.log(`[TAG-AUTO] No candidates found for "${tag}", keeping original`);
-                return tag; // Fallback to original
-            }
-        } catch (error) {
-            console.warn(`[TAG-AUTO] Tag processing failed for "${tag}":`, error);
-            return tag; // Always fallback to original
-        }
-        });
-        
-        const batchResults = await Promise.all(batchPromises);
-        correctedTags.push(...batchResults);
-        
-        // Add small delay between batches to further reduce API load
-        if (i + BATCH_SIZE < tags.length) {
-            await new Promise(resolve => setTimeout(resolve, 100));
-        }
-    }
+    // Use optimized batch processing for better performance
+    const correctedTags = await processBatchedParallel(tags, strategy, generationType);
     
     // Flatten and deduplicate tags
     const flattenedTags = correctedTags.flatMap(tag => 
@@ -931,11 +849,253 @@ async function processTagsInBatch(prompt, generationType) {
     
     const result = uniqueTags.join(', ');
     
-    console.log('[TAG-AUTO] Batch processing completed!');
+    console.log('[TAG-AUTO] Batch parallel processing completed!');
     console.log('[TAG-AUTO] FINAL RESULT:', result);
     
     return result;
 }
+
+// Optimized batch processing with parallel API calls and sequential LLM calls
+async function processBatchedParallel(tags, strategy, generationType) {
+    const BATCH_SIZE = 4; // Process 4 tags per batch for optimal balance
+    const correctedTags = [];
+    const processingStats = {
+        totalTags: tags.length,
+        processedTags: 0,
+        successfulCorrections: 0,
+        apiFailures: 0,
+        llmFailures: 0,
+        skippedTags: 0
+    };
+    
+    // Split tags into batches
+    const batches = [];
+    for (let i = 0; i < tags.length; i += BATCH_SIZE) {
+        batches.push(tags.slice(i, i + BATCH_SIZE));
+    }
+    
+    console.log(`[TAG-AUTO] Processing ${tags.length} tags in ${batches.length} batches of ${BATCH_SIZE}`);
+    
+    // Process each batch with error isolation
+    for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
+        const batch = batches[batchIndex];
+        console.log(`[TAG-AUTO] Processing batch ${batchIndex + 1}/${batches.length} with ${batch.length} tags`);
+        
+        try {
+            const batchResults = await processSingleBatchWithErrorHandling(
+                batch, 
+                strategy, 
+                generationType, 
+                batchIndex + 1,
+                processingStats
+            );
+            correctedTags.push(...batchResults);
+            
+        } catch (error) {
+            console.error(`[TAG-AUTO] Batch ${batchIndex + 1} failed completely:`, error);
+            // Add original tags as fallback for entire batch
+            correctedTags.push(...batch);
+            processingStats.processedTags += batch.length;
+            processingStats.apiFailures += batch.length;
+        }
+        
+        // Brief pause between batches to ensure LLM state isolation
+        if (batchIndex < batches.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Progress logging
+        const progressPercent = Math.round((processingStats.processedTags / processingStats.totalTags) * 100);
+        console.log(`[TAG-AUTO] Progress: ${processingStats.processedTags}/${processingStats.totalTags} tags (${progressPercent}%)`);
+    }
+    
+    // Final processing summary
+    logProcessingSummary(processingStats);
+    
+    return correctedTags;
+}
+
+// Enhanced single batch processing with comprehensive error handling
+async function processSingleBatchWithErrorHandling(tags, strategy, generationType, batchNumber, stats) {
+    console.log(`[TAG-AUTO] Batch ${batchNumber}: Starting parallel API search phase`);
+    
+    // Phase 1: Parallel API calls with individual error handling
+    const apiResultsPromises = tags.map(async (tag, index) => {
+        try {
+            return await processTagForApiSearch(tag, index, batchNumber, strategy);
+        } catch (error) {
+            console.warn(`[TAG-AUTO] Batch ${batchNumber}[${index}]: API search failed for "${tag}":`, error);
+            stats.apiFailures++;
+            return { tag, type: 'error', result: tag, error };
+        }
+    });
+    
+    // Wait for all API calls to complete with timeout protection
+    let apiResults;
+    try {
+        // Add timeout to prevent hanging batch operations
+        apiResults = await Promise.race([
+            Promise.all(apiResultsPromises),
+            new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Batch API timeout')), 30000)
+            )
+        ]);
+        console.log(`[TAG-AUTO] Batch ${batchNumber}: API search phase completed`);
+    } catch (error) {
+        console.error(`[TAG-AUTO] Batch ${batchNumber}: API search phase timed out:`, error);
+        // Fallback: create error results for all tags
+        apiResults = tags.map(tag => ({ tag, type: 'error', result: tag, error }));
+        stats.apiFailures += tags.length;
+    }
+    
+    // Phase 2: Sequential LLM processing with error isolation
+    console.log(`[TAG-AUTO] Batch ${batchNumber}: Starting sequential LLM selection phase`);
+    const finalResults = [];
+    
+    for (let i = 0; i < apiResults.length; i++) {
+        const apiResult = apiResults[i];
+        const tagIndex = `${batchNumber}[${i}]`;
+        
+        try {
+            const result = await processTagForLLMSelection(apiResult, tagIndex, generationType, stats);
+            finalResults.push(result);
+            stats.processedTags++;
+            
+        } catch (error) {
+            console.warn(`[TAG-AUTO] Batch ${tagIndex}: LLM processing failed for "${apiResult.tag}":`, error);
+            finalResults.push(apiResult.tag); // Always fallback to original
+            stats.llmFailures++;
+            stats.processedTags++;
+        }
+        
+        // Small delay between LLM calls to ensure response isolation
+        if (i < apiResults.length - 1) {
+            await new Promise(resolve => setTimeout(resolve, 75));
+        }
+    }
+    
+    console.log(`[TAG-AUTO] Batch ${batchNumber}: Sequential LLM phase completed`);
+    return finalResults;
+}
+
+// Process individual tag for API search phase
+async function processTagForApiSearch(tag, index, batchNumber, strategy) {
+    // Skip metadata tags in brackets (e.g., "[ASPECT:wide]", "[RESOLUTION:1024x1024]")
+    if (tag.startsWith('[') && tag.endsWith(']')) {
+        console.log(`[TAG-AUTO] Batch ${batchNumber}[${index}]: Skipping metadata tag: "${tag}"`);
+        return { tag, type: 'metadata', result: tag };
+    }
+    
+    // Handle mixed metadata + tag (e.g., "[ASPECT:square] padded_room")
+    if (tag.includes('[') && tag.includes(']')) {
+        const metadataMatch = tag.match(/(\[.*?\])\s*(.+)/);
+        if (metadataMatch) {
+            const [, metadata, actualTag] = metadataMatch;
+            console.log(`[TAG-AUTO] Batch ${batchNumber}[${index}]: Processing mixed tag: metadata="${metadata}" tag="${actualTag}"`);
+            
+            const response = await searchTagCandidatesWithFallback(actualTag, strategy.candidateLimit);
+            return { 
+                tag, 
+                type: 'mixed', 
+                metadata, 
+                actualTag, 
+                result: response,
+                hasApiResults: response.candidates && response.candidates.length > 0
+            };
+        }
+    }
+    
+    // Skip tags that are likely weights/parameters (e.g., "(from_side:1.1)")
+    if (tag.includes(':') && tag.includes('(')) {
+        console.log(`[TAG-AUTO] Batch ${batchNumber}[${index}]: Skipping parameter tag: "${tag}"`);
+        return { tag, type: 'parameter', result: tag };
+    }
+
+    // Regular tag processing
+    console.log(`[TAG-AUTO] Batch ${batchNumber}[${index}]: API searching "${tag}"`);
+    const response = await searchTagCandidatesWithFallback(tag, strategy.candidateLimit);
+    
+    return { 
+        tag, 
+        type: 'regular', 
+        result: response,
+        hasApiResults: response.candidates && response.candidates.length > 0
+    };
+}
+
+// Process individual tag for LLM selection phase
+async function processTagForLLMSelection(apiResult, tagIndex, generationType, stats) {
+    // Handle different tag types
+    if (apiResult.type === 'metadata' || apiResult.type === 'parameter') {
+        console.log(`[TAG-AUTO] Batch ${tagIndex}: Using direct result for ${apiResult.type} tag: "${apiResult.result}"`);
+        stats.skippedTags++;
+        return apiResult.result;
+    }
+    
+    if (apiResult.type === 'error') {
+        console.log(`[TAG-AUTO] Batch ${tagIndex}: Using fallback for error tag: "${apiResult.result}"`);
+        return apiResult.result;
+    }
+    
+    if (apiResult.type === 'mixed') {
+        if (apiResult.hasApiResults) {
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selecting for mixed tag "${apiResult.actualTag}" with ${apiResult.result.candidates.length} candidates`);
+            
+            const bestTag = await selectBestTagWithContext(
+                apiResult.result.candidates, 
+                apiResult.actualTag, 
+                generationType
+            );
+            
+            const finalTag = `${apiResult.metadata} ${bestTag}`;
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selected "${bestTag}" -> final: "${finalTag}"`);
+            stats.successfulCorrections++;
+            return finalTag;
+        } else {
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: No candidates for mixed tag, keeping original: "${apiResult.tag}"`);
+            return apiResult.tag;
+        }
+    }
+    
+    if (apiResult.type === 'regular') {
+        if (apiResult.hasApiResults) {
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selecting for "${apiResult.tag}" with ${apiResult.result.candidates.length} candidates`);
+            
+            const bestTag = await selectBestTagWithContext(
+                apiResult.result.candidates, 
+                apiResult.tag, 
+                generationType
+            );
+            
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selected "${bestTag}" for "${apiResult.tag}"`);
+            stats.successfulCorrections++;
+            return bestTag;
+        } else {
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: No candidates found, keeping original: "${apiResult.tag}"`);
+            return apiResult.tag;
+        }
+    }
+    
+    // Fallback case
+    return apiResult.tag;
+}
+
+// Log processing summary with performance metrics
+function logProcessingSummary(stats) {
+    const successRate = Math.round((stats.successfulCorrections / stats.totalTags) * 100);
+    const apiFailureRate = Math.round((stats.apiFailures / stats.totalTags) * 100);
+    const llmFailureRate = Math.round((stats.llmFailures / stats.totalTags) * 100);
+    
+    console.log(`[TAG-AUTO] ===== PROCESSING SUMMARY =====`);
+    console.log(`[TAG-AUTO] Total tags: ${stats.totalTags}`);
+    console.log(`[TAG-AUTO] Processed: ${stats.processedTags}`);
+    console.log(`[TAG-AUTO] Successful corrections: ${stats.successfulCorrections} (${successRate}%)`);
+    console.log(`[TAG-AUTO] API failures: ${stats.apiFailures} (${apiFailureRate}%)`);
+    console.log(`[TAG-AUTO] LLM failures: ${stats.llmFailures} (${llmFailureRate}%)`);
+    console.log(`[TAG-AUTO] Skipped tags: ${stats.skippedTags}`);
+    console.log(`[TAG-AUTO] ==============================`);
+}
+
 
 // Hook into SillyTavern's image generation pipeline
 let originalGetPrompt = null;
