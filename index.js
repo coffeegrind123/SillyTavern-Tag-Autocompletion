@@ -37,12 +37,25 @@ async function withTagProfile(asyncOperation) {
     
     console.log('[TAG-AUTO] Starting withTagProfile wrapper');
     
-    // Check if SlashCommandParser is available
-    if (!window.SlashCommandParser?.commands?.['profile']) {
+    // Check if SlashCommandParser is available - try multiple sources
+    let slashParser = window.SlashCommandParser || globalContext.SlashCommandParser;
+    
+    // Try to get it from the global context more directly
+    if (!slashParser && window.SillyTavern) {
+        const context = window.SillyTavern.getContext();
+        slashParser = context.SlashCommandParser;
+    }
+    
+    if (!slashParser?.commands?.['profile']) {
         console.error('[TAG-AUTO] SlashCommandParser or profile command not available');
-        console.log('[TAG-AUTO] Available SlashCommandParser:', !!window.SlashCommandParser);
-        console.log('[TAG-AUTO] Available commands:', Object.keys(window.SlashCommandParser?.commands || {}));
-        throw new Error('Profile switching not available');
+        console.log('[TAG-AUTO] Available window.SlashCommandParser:', !!window.SlashCommandParser);
+        console.log('[TAG-AUTO] Available globalContext.SlashCommandParser:', !!globalContext.SlashCommandParser);
+        console.log('[TAG-AUTO] Available via SillyTavern context:', !!(window.SillyTavern?.getContext()?.SlashCommandParser));
+        console.log('[TAG-AUTO] Available commands:', Object.keys(slashParser?.commands || {}));
+        
+        // Don't fallback - this would use the wrong profile
+        console.error('[TAG-AUTO] Profile switching unavailable - cannot proceed with LLM calls');
+        throw new Error('Profile switching not available - extension cannot use dedicated profile');
     }
     
     // Get current profile name using invisible slash command callback
@@ -50,7 +63,7 @@ async function withTagProfile(asyncOperation) {
     let originalProfileName = null;
     
     try {
-        originalProfileName = await window.SlashCommandParser.commands['profile'].callback(getNamedArguments(), '');
+        originalProfileName = await slashParser.commands['profile'].callback(getNamedArguments(), '');
         console.log(`[TAG-AUTO] Original profile detected: "${originalProfileName || 'None'}"`);
     } catch (error) {
         console.warn('[TAG-AUTO] Could not get current profile, assuming None:', error);
@@ -62,11 +75,11 @@ async function withTagProfile(asyncOperation) {
         
         // Switch to tag profile using invisible slash command callback
         const args = getNamedArguments({ await: 'true' });
-        const switchResult = await window.SlashCommandParser.commands['profile'].callback(args, REQUIRED_PROFILE_NAME);
+        const switchResult = await slashParser.commands['profile'].callback(args, REQUIRED_PROFILE_NAME);
         console.log(`[TAG-AUTO] Profile switch result:`, switchResult);
         
         // Verify profile was switched
-        const verifyProfile = await window.SlashCommandParser.commands['profile'].callback(getNamedArguments(), '');
+        const verifyProfile = await slashParser.commands['profile'].callback(getNamedArguments(), '');
         console.log(`[TAG-AUTO] Current profile after switch: "${verifyProfile || 'None'}"`);
         
         if (verifyProfile !== REQUIRED_PROFILE_NAME) {
@@ -93,10 +106,10 @@ async function withTagProfile(asyncOperation) {
             
             // Restore to original profile using invisible slash command callback
             const args = getNamedArguments({ await: 'true' });
-            const restoreResult = await window.SlashCommandParser.commands['profile'].callback(args, restoreTarget);
+            const restoreResult = await slashParser.commands['profile'].callback(args, restoreTarget);
             console.log(`[TAG-AUTO] Profile restore result:`, restoreResult);
             
-            const finalProfile = await window.SlashCommandParser.commands['profile'].callback(getNamedArguments(), '');
+            const finalProfile = await slashParser.commands['profile'].callback(getNamedArguments(), '');
             console.log(`[TAG-AUTO] Final profile after restoration: "${finalProfile || 'None'}"`);
         } catch (error) {
             console.warn('[TAG-AUTO] Failed to restore original profile:', error);
@@ -865,6 +878,8 @@ function hookImageGeneration() {
                         console.log('[TAG-AUTO] Final prompt:', corrected);
                     } catch (error) {
                         console.error('[TAG-AUTO] Error during correction:', error);
+                        console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
+                        // Don't modify data.prompt - let original prompt through
                     }
                 } else {
                     console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
