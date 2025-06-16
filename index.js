@@ -743,8 +743,53 @@ async function correctTagsWithContext(prompt, generationType) {
     console.log('[TAG-AUTO] Original prompt:', prompt);
     console.log('[TAG-AUTO] Generation type:', generationType);
 
+    // Clean the prompt by removing thinking tags and explanatory content
+    let cleanPrompt = prompt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    
+    // Look for content after the last "< think>" or similar markers
+    let lastThinkIndex = -1;
+    let skipLength = 0;
+    
+    const spaceThink = cleanPrompt.lastIndexOf('< think>');
+    const openThink = cleanPrompt.lastIndexOf('<think>');
+    const closeThink = cleanPrompt.lastIndexOf('</think>');
+    
+    if (spaceThink > lastThinkIndex) {
+        lastThinkIndex = spaceThink;
+        skipLength = 8; // "< think>" length
+    }
+    if (openThink > lastThinkIndex) {
+        lastThinkIndex = openThink;
+        skipLength = 7; // "<think>" length
+    }
+    if (closeThink > lastThinkIndex) {
+        lastThinkIndex = closeThink;
+        skipLength = 8; // "</think>" length
+    }
+    
+    if (lastThinkIndex !== -1) {
+        cleanPrompt = cleanPrompt.substring(lastThinkIndex + skipLength).trim();
+    }
+    
+    // If no think markers, try to find the last sentence that looks like tags
+    if (!cleanPrompt.includes(',')) {
+        const sentences = prompt.split(/[.!?]+/);
+        for (let i = sentences.length - 1; i >= 0; i--) {
+            const sentence = sentences[i].trim();
+            if (sentence.includes(',') && /^[a-zA-Z0-9_\s,]+$/.test(sentence)) {
+                cleanPrompt = sentence;
+                break;
+            }
+        }
+    }
+    
+    // Remove any leading/trailing punctuation
+    cleanPrompt = cleanPrompt.replace(/^[^a-zA-Z0-9_]*/, '').replace(/[^a-zA-Z0-9_\s,]*$/, '');
+    
+    console.log('[TAG-AUTO] Cleaned prompt:', cleanPrompt);
+
     // Split prompt into individual tags
-    const tags = prompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
+    const tags = cleanPrompt.split(',').map(t => t.trim()).filter(t => t.length > 0);
     
     // Get processing strategy based on generation type
     // const strategy = getProcessingStrategy(generationType);
