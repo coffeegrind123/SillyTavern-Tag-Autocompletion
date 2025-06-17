@@ -238,7 +238,15 @@ function getProcessingStrategy(generationType) {
 
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
+    const tags = window.globalPrompt
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')))
+        .join(', ');
+
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that describe the same visual concept.
+
+CONTEXT: ${tags}
 
 Focus on:
 - Core descriptive words (not character names or franchises)
@@ -311,8 +319,16 @@ async function searchTagCandidates(query, limit = 5) {
 
 // Evaluate if current fallback candidates are sufficient to represent the original
 async function evaluateFallbackSufficiency(originalTag, candidates) {
+    const tags = window.globalPrompt
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')))
+        .join(', ');
+
     const prompt = `Original compound tag: "${originalTag}"
 Current candidates found: ${candidates.join(', ')}
+
+CONTEXT: ${tags}
 
 Question: Can you find ALL the core components of the original compound tag among these candidates with CONTEXTUALLY APPROPRIATE matches?
 
@@ -359,9 +375,17 @@ async function evaluateSearchResults(originalTag, candidates) {
     if (!candidates || candidates.length === 0) {
         return false;
     }
+
+    const tags = window.globalPrompt
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')))
+        .join(', ');
     
     const prompt = `Original tag: "${originalTag}"
 Search results: ${candidates.join(', ')}
+
+CONTEXT: ${tags}
 
 Are these search results good quality matches for the original tag? 
 
@@ -736,9 +760,15 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
         return candidates[0];
     }
 
+    const tags = window.globalPrompt
+        .split(',')
+        .map(tag => tag.trim())
+        .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')))
+        .join(', ');
+
     const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
-CONTEXT: ${window.globalPrompt}
+CONTEXT: ${tags}
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
