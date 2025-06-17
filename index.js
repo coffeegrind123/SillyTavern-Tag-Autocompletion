@@ -11,7 +11,8 @@ const defaultSettings = {
     apiEndpoint: 'http://localhost:8000',
     timeout: 30000, // Increased to 30 seconds
     candidateLimit: 20,
-    debug: false
+    debug: false,
+    semanticValidation: true // Enable semantic validation to prevent inappropriate tag selections
 };
 
 // Profile management constants
@@ -366,7 +367,7 @@ Return ONLY a comma-separated list of words. No explanations.`;
             );
             
             // Remove thinking tags and explanatory content
-            const cleanResult = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+            const cleanResult = stripThinkTags(result);
             
             const terms = cleanResult
                 .split(/[,\n]/)
@@ -471,7 +472,7 @@ Answer ONLY "YES" or "NO".`;
             );
             
             // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
-            const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+            const cleanResult = stripThinkTags(result).toUpperCase();
             const answer = cleanResult.replace(/[^\w]/g, ''); // Remove non-word characters
             console.log(`[TAG-AUTO] LLM sufficiency evaluation for "${originalTag}": ${answer} (from raw: ${result.substring(0, 100)}...)`);
             
@@ -531,7 +532,7 @@ Answer ONLY "YES" if the results adequately represent the original meaning, or O
             );
             
             // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
-            const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+            const cleanResult = stripThinkTags(result).toUpperCase();
             const answer = cleanResult.replace(/[^\w]/g, ''); // Remove non-word characters
             console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer} (from raw: ${result.substring(0, 100)}...)`);
             
@@ -668,8 +669,7 @@ function parseLLMTagSelection(result, candidates) {
     }
     
     // Step 2: Additional cleaning for any remaining artifacts
-    cleanResult = cleanResult
-        .replace(/<\s*think[\s>][\s\S]*?<\/\s*think\s*>/gi, '') // Remove any remaining think blocks
+    cleanResult = stripThinkTags(cleanResult) // Remove any remaining think blocks
         .replace(/```[\s\S]*?```/gi, '') // Remove code blocks
         .replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
         .replace(/^#{1,6}\s*/gm, '') // Remove markdown headers
@@ -804,35 +804,62 @@ async function selectBestTagWithContext(candidates, originalTag, generationType)
         return candidates[0];
     }
 
+    let selectedTag;
     try {
         switch(generationType) {
             case GENERATION_MODE.CHARACTER: // 'you' - Character ("Yourself") - AI character
             case GENERATION_MODE.FACE: // 'face' - Portrait - AI character face
             case GENERATION_MODE.CHARACTER_MULTIMODAL:
             case GENERATION_MODE.FACE_MULTIMODAL:
-                return await selectBestTagForCharacter(candidates, originalTag);
+                selectedTag = await selectBestTagForCharacter(candidates, originalTag);
+                break;
                 
             case GENERATION_MODE.USER: // 'me' - User ("Me") - Human user
             case GENERATION_MODE.USER_MULTIMODAL:
-                return await selectBestTagForUser(candidates, originalTag);
+                selectedTag = await selectBestTagForUser(candidates, originalTag);
+                break;
                 
             case GENERATION_MODE.NOW: // 'last' - Last Message
             case GENERATION_MODE.RAW_LAST: // 'raw_last' - Raw Last Message
-                return await selectBestTagForLastMessage(candidates, originalTag);
+                selectedTag = await selectBestTagForLastMessage(candidates, originalTag);
+                break;
                 
             case GENERATION_MODE.SCENARIO: // 'scene' - Scenario ("The Whole Story")
-                return await selectBestTagForScenario(candidates, originalTag);
+                selectedTag = await selectBestTagForScenario(candidates, originalTag);
+                break;
                 
             case GENERATION_MODE.BACKGROUND: // 'background' - Background
-                return await selectBestTagForBackground(candidates, originalTag);
+                selectedTag = await selectBestTagForBackground(candidates, originalTag);
+                break;
                 
             case GENERATION_MODE.FREE:
             case GENERATION_MODE.FREE_EXTENDED:
-                return await selectBestTagGeneric(candidates, originalTag);
+                selectedTag = await selectBestTagGeneric(candidates, originalTag);
+                break;
                 
             default:
-                return await selectBestTagGeneric(candidates, originalTag);
+                selectedTag = await selectBestTagGeneric(candidates, originalTag);
+                break;
         }
+        
+        // Validate the selected tag to prevent semantic mismatches
+        const validation = await validateTagSelection(originalTag, selectedTag, candidates);
+        
+        if (!validation.isValid) {
+            console.log(`[TAG-AUTO] Tag selection rejected by validation: "${originalTag}" → "${selectedTag}"`);
+            
+            // Try using validation suggestion if available
+            if (validation.suggestion && candidates.includes(validation.suggestion)) {
+                console.log(`[TAG-AUTO] Using validation suggestion: "${validation.suggestion}"`);
+                return validation.suggestion;
+            }
+            
+            // Fall back to first candidate or original tag
+            console.log(`[TAG-AUTO] Using fallback: first candidate or original tag`);
+            return candidates[0] || originalTag;
+        }
+        
+        return selectedTag;
     } catch (error) {
         if (extensionSettings.debug) {
             console.warn('Tag selection failed:', error);
@@ -1149,6 +1176,126 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
     }
 }
 
+// Utility function to remove LLM thinking tags from responses
+function stripThinkTags(text) {
+    if (!text) return '';
+    
+    // Comprehensive regex to handle various think tag formats:
+    // <think>, < think >, <THINK>, < THINK >, etc.
+    return text.replace(/<\s*think[\s>][\s\S]*?<\/\s*think\s*>/gi, '').trim();
+}
+
+// Semantic validation function to prevent inappropriate tag selections
+async function validateTagSelection(originalTag, selectedTag, allCandidates, context = '') {
+    // Skip validation if disabled in settings
+    if (!extensionSettings.semanticValidation) {
+        return { isValid: true, reason: 'validation_disabled' };
+    }
+    
+    // Skip validation for exact matches or very short tags
+    if (originalTag === selectedTag || selectedTag.length <= 3) {
+        return { isValid: true, reason: 'exact_match_or_short' };
+    }
+    
+    // Skip validation if only one candidate available
+    if (allCandidates.length <= 1) {
+        return { isValid: true, reason: 'single_candidate' };
+    }
+    
+    // Simple pattern detection for obvious mismatches
+    const original = originalTag.toLowerCase();
+    const selected = selectedTag.toLowerCase();
+    
+    // Check for lighting→smoking confusion
+    if ((original.includes('lighting') || original.includes('light')) && 
+        (selected.includes('cigarette') || selected.includes('smoke'))) {
+        console.log(`[TAG-AUTO] Auto-rejecting lighting→smoking confusion: "${originalTag}" → "${selectedTag}"`);
+        return { isValid: false, reason: 'lighting_smoking_confusion' };
+    }
+    
+    // Check for body part→clothing confusion  
+    if ((original.includes('nipple') || original.includes('breast')) &&
+        (selected.includes('hair') || selected.includes('shirt') || selected.includes('dress'))) {
+        console.log(`[TAG-AUTO] Auto-rejecting body→clothing confusion: "${originalTag}" → "${selectedTag}"`);
+        return { isValid: false, reason: 'body_clothing_confusion' };
+    }
+    
+    const prompt = `You are a semantic validator for danbooru/e621 tags. Check if this tag selection makes sense.
+
+ORIGINAL TAG: "${originalTag}"
+SELECTED TAG: "${selectedTag}"
+ALL AVAILABLE CANDIDATES: ${allCandidates.join(', ')}
+CONTEXT: ${context}
+
+VALIDATION RULES:
+1. The selected tag should capture the core visual/descriptive meaning of the original
+2. Reject selections that change semantic category (e.g., lighting → smoking, body parts → clothing)
+3. Reject selections that are contextually inappropriate 
+4. Consider if other candidates would be better matches
+
+EXAMPLES OF INVALID SELECTIONS:
+- "bright_lighting" → "lighting cigarette" (lighting context changed to smoking)
+- "pink_nipples" → "blonde hair" (body part changed to hair color)
+- "indoor" → "white dress" (location changed to clothing)
+
+EXAMPLES OF VALID SELECTIONS:
+- "metal_floor" → "floor" (simplified but kept meaning)
+- "shivering" → "trembling" (good synonym)
+- "bare_foot" → "barefoot" (format correction)
+
+Answer ONLY "VALID" if the selection makes semantic sense, or "INVALID" if it doesn't.
+If INVALID, suggest the best alternative from the candidates list.
+
+FORMAT: 
+VALID
+OR
+INVALID: [best_alternative_tag]`;
+
+    try {
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        // Track this LLM operation with its abort controller
+        const operationId = startLLMOperation(`validate_${originalTag}`, controller);
+        
+        try {
+            const result = await globalContext.generateQuietPrompt(
+                prompt, false, false, null, null, null, null, controller.signal
+            );
+            
+            const cleanResult = stripThinkTags(result);
+            
+            if (cleanResult.toUpperCase().startsWith('VALID')) {
+                console.log(`[TAG-AUTO] Validation PASSED for "${originalTag}" → "${selectedTag}"`);
+                return { isValid: true, reason: 'llm_validation_passed' };
+            } else if (cleanResult.toUpperCase().startsWith('INVALID')) {
+                const suggestionMatch = cleanResult.match(/INVALID:\s*(.+)/i);
+                const suggestion = suggestionMatch ? suggestionMatch[1].trim() : null;
+                
+                console.log(`[TAG-AUTO] Validation FAILED for "${originalTag}" → "${selectedTag}"`);
+                if (suggestion) {
+                    console.log(`[TAG-AUTO] Validation suggests alternative: "${suggestion}"`);
+                }
+                
+                return { 
+                    isValid: false, 
+                    reason: 'llm_validation_failed',
+                    suggestion: suggestion 
+                };
+            } else {
+                // Unclear response, assume valid
+                console.log(`[TAG-AUTO] Validation unclear for "${originalTag}" → "${selectedTag}", assuming valid`);
+                return { isValid: true, reason: 'unclear_response' };
+            }
+        } finally {
+            endLLMOperation(operationId);
+        }
+    } catch (error) {
+        console.warn(`[TAG-AUTO] Validation error for "${originalTag}" → "${selectedTag}":`, error);
+        return { isValid: true, reason: 'validation_error' }; // Assume valid on error
+    }
+}
+
 // Main tag correction function
 // Architecture: Single profile switch for entire batch operation
 // - Avoids hundreds of profile switches per prompt
@@ -1176,7 +1323,7 @@ async function correctTagsWithContext(prompt, generationType) {
 // Process all tags under a single profile switch with optimized parallel processing
 async function processTagsInBatch(prompt, generationType) {
     // Clean the prompt by removing thinking tags and explanatory content
-    let cleanPrompt = prompt.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    let cleanPrompt = stripThinkTags(prompt);
     
     // Look for content after the last "< think>" or similar markers (case insensitive)
     let lastThinkIndex = -1;
@@ -1919,14 +2066,32 @@ window.tagAutoStatus = function() {
     console.log('- Profile switch in progress:', profileSwitchInProgress);
 };
 
+// Expose stripThinkTags function globally for testing
+window.tagAutoStripThinkTags = stripThinkTags;
+
 // Test function to verify think tag stripping works
 window.tagAutoTestThinkStripping = function(text) {
     console.log('Original:', text);
-    const cleanResult = text.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+    const cleanResult = stripThinkTags(text).toUpperCase();
     console.log('After think removal:', cleanResult);
     const answer = cleanResult.replace(/[^\w]/g, '');
     console.log('Final answer:', answer);
     return answer;
+};
+
+// Test function for semantic validation
+window.tagAutoTestValidation = async function(originalTag, selectedTag, allCandidates = [selectedTag]) {
+    console.log(`[TAG-AUTO] Testing validation for: "${originalTag}" → "${selectedTag}"`);
+    console.log(`[TAG-AUTO] Available candidates: [${allCandidates.join(', ')}]`);
+    
+    try {
+        const result = await validateTagSelection(originalTag, selectedTag, allCandidates);
+        console.log(`[TAG-AUTO] Validation result:`, result);
+        return result;
+    } catch (error) {
+        console.error(`[TAG-AUTO] Validation test failed:`, error);
+        return { isValid: false, reason: 'test_error', error };
+    }
 };
 
 // Initialize the extension
