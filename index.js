@@ -1438,16 +1438,17 @@ function hookImageGeneration() {
                                 console.log('[TAG-AUTO] Prompt correction complete!');
                                 console.log('[TAG-AUTO] Final prompt:', corrected);
                                 console.log('[TAG-AUTO] Extension processing finished - image generation can proceed');
+                                resolve(); // Resolve AFTER tag processing completes
                             } catch (error) {
                                 console.error('[TAG-AUTO] Error during correction:', error);
                                 console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
                                 // Don't modify data.prompt - let original prompt through
+                                resolve(); // Resolve even on error
                             }
                         } else {
                             console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
+                            resolve(); // Resolve immediately if skipping
                         }
-                        
-                        resolve(); // Always resolve to let image generation continue
                     } catch (error) {
                         console.error('[TAG-AUTO] Unexpected error in event handler:', error);
                         resolve(); // Resolve even on error to prevent hanging
