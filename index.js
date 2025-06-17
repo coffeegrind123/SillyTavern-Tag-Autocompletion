@@ -330,17 +330,22 @@ function getProcessingStrategy(generationType) {
 
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
-    // Intelligent context selection to minimize semantic pollution
+    // Minimal context to prevent semantic pollution
     const allTags = window.globalPrompt
         .split(',') 
         .map(tag => tag.trim())
         .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')));
     
-    // Use moderate context to balance relevance and pollution
-    const contextTags = allTags.slice(0, 5);  // Reduced from 8 to 5 for cleaner context
+    // Use minimal context to prevent category mixing
+    const contextTags = allTags.slice(0, 2);  // Further reduced from 5 to 2 for minimal pollution
     const limitedContext = contextTags.join(', ');
 
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that ONLY relate to the same semantic category and visual concept.
+
+PREFERRED FORMATS:
+- Single words: "bright_lighting" → lighting, bright, illumination
+- Two-word compounds: "pink_nipples" → pink nipples, nipple color  
+- AVOID three or more word combinations unless absolutely necessary
 
 RELEVANT CONTEXT: ${limitedContext}
 
@@ -352,23 +357,30 @@ CRITICAL SEMANTIC RULES:
 - Ignore unrelated scene elements when generating terms
 
 CATEGORY EXAMPLES:
-- Body: "pink_nipples" → nipples, nipple, pink, breast
-- Lighting: "bright_lighting" → lighting, light, bright, illumination  
-- Pose: "hugging_own_knees" → hugging, embrace, knees, sitting
-- Injury: "knee_scrape" → knee, scrape, injury, bruise
+- Body: "pink_nipples" → nipples, pink, breast, nipple color
+- Lighting: "bright_lighting" → lighting, bright, illumination, light  
+- Pose: "hugging_own_knees" → hugging, knees, embrace, sitting
+- Injury: "knee_scrape" → scrape, knee, injury, bruise
 - Nudity: "fully_nude" → nude, naked, bare, exposed
-- Environment: "steel_walls" → walls, wall, steel, metal
-- Objects: "hatch_closed" → hatch, door, closed, entrance
+- Environment: "steel_walls" → walls, steel, metal, wall
+- Objects: "hatch_closed" → hatch, closed, door, entrance
 
-ABSOLUTE RULE: Generate terms that are DIRECT components, synonyms, or logical variations of the original tag ONLY. Context provides scene understanding but must NEVER influence the generated terms.
+ABSOLUTE RULE: Generate terms that are DIRECT components, synonyms, or logical variations of the original tag ONLY. Context is provided for minimal scene understanding but must NEVER influence the generated terms.
 
-PROHIBITED CONTEXT MIXING:
-- Character/body terms must NEVER generate environmental terms
-- Environmental terms must NEVER generate character/body terms  
-- Lighting terms must NEVER generate object/action terms
-- Action terms must NEVER generate environmental terms
+CRITICAL PROHIBITION: Complete semantic isolation required:
+- Body/character terms: Only generate body/character variations
+- Environmental terms: Only generate environmental variations  
+- Action terms: Only generate action variations
+- Lighting terms: Only generate lighting variations
+- Emotion terms: Only generate emotion variations
+- Perspective terms: Only generate perspective variations
 
-Return ONLY a comma-separated list of words that are direct components or close synonyms of the original tag. Ignore all context that doesn't directly relate to the original tag's meaning. No explanations.`;
+EXAMPLES OF PROHIBITED MIXING:
+- "bright_lighting" must NEVER generate "steel_illumination" or "hatch_lighting"
+- "fearful_expression" must NEVER generate "fearfully_nipples" or body-related terms
+- "scrambling" must NEVER generate "naked_scramble" or "white_dancing"
+
+Return ONLY a comma-separated list of simple terms (prefer single words or two-word compounds) that are direct components or close synonyms of the original tag. Ignore all context that doesn't directly relate to the original tag's meaning. No explanations.`;
 
     try {
         // Create isolated abort controller to prevent response mixing
@@ -525,7 +537,10 @@ Are these search results good quality matches for the original tag?
 QUALITY CRITERIA:
 - Results should maintain the same semantic category and meaning as the original
 - Reject candidate pools that are contextually inappropriate or overly explicit
+- Reject candidate pools that are completely unrelated (e.g., fish for camera angles)
 - For general terms like "female", reject if all candidates are sexual/explicit variants
+- For perspective terms like "high_angle", reject animal/object candidates
+- For action terms like "scrambling", reject unrelated activity candidates
 
 ${originalTag.includes('_') ? 
     `This is a compound tag "${originalTag}". Check if the results preserve the FULL meaning:
@@ -536,6 +551,7 @@ ${originalTag.includes('_') ?
 - Look for exact matches, plurals, or very similar variations
 - Examples: "indoor" matches "indoors", "cat" matches "cats", "smile" matches "smiling"
 - REJECT if all candidates are inappropriate variations (e.g., all sexual terms for general words)
+- REJECT if all candidates are from wrong semantic category (e.g., animals for camera angles)
 - One excellent match is sufficient for single-word tags.`
 }
 
