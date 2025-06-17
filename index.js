@@ -1136,7 +1136,7 @@ async function processSingleBatchWithErrorHandling(tags, strategy, generationTyp
         apiResults = await Promise.race([
             Promise.all(apiResultsPromises),
             new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Batch API timeout')), 30000)
+                setTimeout(() => reject(new Error('Batch API timeout')), 120000)
             )
         ]);
         console.log(`[TAG-AUTO] Batch ${batchNumber}: API search phase completed`);
