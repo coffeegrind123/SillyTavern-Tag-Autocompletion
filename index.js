@@ -1406,7 +1406,7 @@ function hookImageGeneration() {
                 console.log('[TAG-AUTO] Test event: message_sent fired');
             });
             
-            eventSource.on(event_types.SD_PROMPT_PROCESSING, (data) => {
+            eventSource.on(globalContext.event_types.SD_PROMPT_PROCESSING, (data) => {
                 return new Promise(async (resolve, reject) => {
                 console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
                 console.log('[TAG-AUTO] Event data:', data);
