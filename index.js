@@ -236,19 +236,6 @@ function getProcessingStrategy(generationType) {
     }
 }
 
-function extractContentWithThinkTags(response) {
-    if (!response) return '';
-    
-    // First remove all think tags
-    let cleaned = response.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '');
-    
-    // Then clean up any remaining artifacts
-    return cleaned
-        .split('\n')[0] // Take only first line
-        .replace(/[^a-zA-Z0-9,_\s-]/g, '') // Remove special chars
-        .trim();
-}
-
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that describe the same visual concept.
@@ -267,14 +254,15 @@ Examples:
 Return ONLY a comma-separated list of words. No explanations.`;
 
     try {
-        const result = await directLLMCall(prompt);
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
         // Remove thinking tags and explanatory content
-        const cleanResult = extractContentWithThinkTags(result);
+        const cleanResult = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
         
-        const terms = cleanResult.split(',')
-            .map(tag => tag.trim())
-            .filter(tag => tag.length > 0 && tag !== originalTag);
+        const terms = cleanResult
+            .split(/[,\n]/)
+            .map(term => term.trim().replace(/['"()\[\]*]/g, ''))
+            .filter(term => term.length > 0 && term !== originalTag);
         
         console.log(`[TAG-AUTO] Generated fallback terms for "${originalTag}":`, terms);
         
@@ -351,7 +339,7 @@ Examples:
 Answer ONLY "YES" or "NO".`;
 
     try {
-        const result = await directLLMCall(prompt);
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
         // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
         const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
@@ -391,15 +379,14 @@ ${originalTag.includes('_') ?
 Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
 
     try {
-        const result = await directLLMCall(prompt);
+        const result = await globalContext.generateQuietPrompt(prompt, false, false);
         
         // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
-        const cleanAnswer = extractContentWithThinkTags(result)
-        .replace(/[^\w]/g, '')
-        .toUpperCase();
-        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${cleanAnswer} (from raw: ${result.substring(0, 100)}...)`);
+        const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
+        const answer = cleanResult.replace(/[^\w]/g, ''); // Remove non-word characters
+        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer} (from raw: ${result.substring(0, 100)}...)`);
         
-        return cleanAnswer === 'YES';
+        return answer === 'YES';
     } catch (error) {
         console.warn('[TAG-AUTO] Failed to evaluate search results (LLM error):', error);
         // Fallback: assume results are poor if LLM fails, trigger fallback search
@@ -510,176 +497,47 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     return result;
 }
 
-async function directLLMCall(prompt) {
-    // Get the current context to access settings
-    const context = globalContext;
-    
-    // Get current profile settings (should be tag_autocompletion profile)
-    const oaiSettings = context.chatCompletionSettings || {};
-    
-    // Debug: Log which profile is being used
-    const currentProfile = getCurrentProfile();
-    console.log(`[TAG-AUTO] directLLMCall using profile: "${currentProfile?.name || 'None'}" with source: "${oaiSettings.chat_completion_source}"`);
-    
-    if (!oaiSettings.chat_completion_source) {
-        throw new Error('[TAG-AUTO] No chat completion source configured in current profile');
-    }
-    
-    // Build request data based on SillyTavern's format
-    const requestData = {
-        stream: false, // Explicitly disable streaming if possible
-        messages: [{ role: 'user', content: prompt }],
-        max_tokens: 50,
-        temperature: 0.1,
-        model: oaiSettings.openai_model || 'gpt-4-turbo',
-        chat_completion_source: oaiSettings.chat_completion_source,
-        custom_url: oaiSettings.custom_url,
-        reverse_proxy: oaiSettings.reverse_proxy
-    };
-    
-    // Determine the endpoint URL based on the completion source
-    let endpointUrl;
-    if (oaiSettings.chat_completion_source === 'custom') {
-        endpointUrl = oaiSettings.custom_url
-        if (!endpointUrl.endsWith('/v1/chat/completions')) {
-            endpointUrl = endpointUrl.replace(/\/$/, '') + '/v1/chat/completions';
-        }
-    } else {
-        // For other sources, use reverse proxy or default
-        endpointUrl = oaiSettings.reverse_proxy
-    }
-    
-    // Build headers
-    const headers = {
-        'Content-Type': 'application/json'
-    };
-    
-    // Add authorization if needed
-    if (oaiSettings.api_key_openai && oaiSettings.chat_completion_source !== 'custom') {
-        headers['Authorization'] = `Bearer ${oaiSettings.api_key_openai}`;
-    }
-    
-    console.log('[TAG-AUTO] Starting direct LLM call...');
-    console.log('[TAG-AUTO] Request data:', { 
-        endpointUrl, 
-        model: requestData.model,
-        max_tokens: requestData.max_tokens 
-    });
-
-    try {
-        const response = await fetch(endpointUrl, {
-            method: 'POST',
-            headers: headers,
-            body: JSON.stringify(requestData),
-            signal: AbortSignal.timeout(15000) // 15 second timeout
-        });
-        
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-        }
-
-        // Strategy 1: Try reading as JSON first (non-streaming)
-        try {
-            const data = await response.json();
-            console.log('[TAG-AUTO] Direct LLM call (non-streaming) result:', data);
-            const content = data.choices?.[0]?.message?.content || '';
-            return extractContentWithThinkTags(content);
-        } catch (jsonError) {
-            console.log('[TAG-AUTO] Falling back to streaming read...');
-        }
-
-        // Strategy 2: Handle streaming response (if JSON parse fails)
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let chunks = [];
-        let fullContent = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            
-            const chunk = decoder.decode(value);
-            chunks.push(chunk);
-            
-            // Try parsing incremental JSON (for APIs like OpenAI streaming)
-            try {
-                const parsed = JSON.parse(chunks.join(''));
-                if (parsed.choices?.[0]?.delta?.content) {
-                    fullContent += parsed.choices[0].delta.content;
-                }
-            } catch (e) {
-                // Ignore incremental parse errors
-            }
-        }
-
-        // Fallback: If streaming didn't capture content, try full concatenation
-        if (!fullContent && chunks.length > 0) {
-            try {
-                const data = JSON.parse(chunks.join(''));
-                fullContent = data.choices?.[0]?.message?.content || '';
-            } catch (e) {
-                console.error('[TAG-AUTO] Failed to parse streaming chunks:', e);
-            }
-        }
-
-        console.log('[TAG-AUTO] Final LLM content:', fullContent);
-        return extractContentWithThinkTags(fullContent);
-        
-    } catch (error) {
-        console.error('[TAG-AUTO] Direct LLM call failed:', error);
-        throw error;
-    }
-}
-
-// Validate LLM tag selection using same pattern as evaluateSearchResults
-async function validateTagSelection(originalTag, selectedTag, candidates) {
-    // Skip validation for exact matches or single candidates
-    if (candidates.length === 1 || selectedTag.toLowerCase() === originalTag.toLowerCase()) {
-        return true;
-    }
-    
-    const prompt = `Original tag: "${originalTag}"
-Selected replacement: "${selectedTag}"
-Available candidates: ${candidates.join(', ')}
-
-Is "${selectedTag}" a semantically reasonable replacement for "${originalTag}" in image generation?
-
-Check for these INVALID patterns:
-- Position/pose tags becoming unrelated concepts (hands_and_knees → lighting_cigarette)
-- Clothing contradictions (naked → naked_shirt) 
-- Emotional states becoming physical properties (exhaustion → wet)
-- Settings becoming unrelated items (clinical_setting → lighting_cigarette)
-
-Answer ONLY "YES" if semantically reasonable, or "NO" if contradictory/unrelated.`;
-
-    try {
-        const result = await directLLMCall(prompt);
-        const cleanAnswer = extractContentWithThinkTags(result)
-        .replace(/[^\w]/g, '')
-        .toUpperCase();
-        
-        console.log(`[TAG-AUTO] Tag selection validation for "${originalTag}" → "${selectedTag}": ${cleanAnswer}`);
-        return cleanAnswer === 'YES';
-    } catch (error) {
-        console.warn('[TAG-AUTO] Validation failed, assuming valid:', error);
-        return true; // Default to valid if validation fails
-    }
-}
-
-// Helper function to parse LLM tag selection response
+// Helper function to parse LLM tag selection response optimized for Qwen3
 function parseLLMTagSelection(result, candidates) {
-    // First clean the response while preserving think tag content
-    const cleanResponse = extractContentWithThinkTags(result);
+    // Step 1: Extract content after </think> tag (Qwen3 specific)
+    let cleanResult = result;
     
-    if (!cleanResponse) {
+    // Find the last </think> tag and extract everything after it
+    const thinkEndRegex = /<\/\s*think\s*>/gi;
+    let lastThinkEnd = -1;
+    let match;
+    while ((match = thinkEndRegex.exec(result)) !== null) {
+        lastThinkEnd = match.index + match[0].length;
+    }
+    
+    if (lastThinkEnd !== -1) {
+        cleanResult = result.substring(lastThinkEnd).trim();
+        console.log(`[TAG-AUTO] Extracted post-think content: "${cleanResult}"`);
+    }
+    
+    // Step 2: Additional cleaning for any remaining artifacts
+    cleanResult = cleanResult
+        .replace(/<\s*think[\s>][\s\S]*?<\/\s*think\s*>/gi, '') // Remove any remaining think blocks
+        .replace(/```[\s\S]*?```/gi, '') // Remove code blocks
+        .replace(/^\s*[-*+]\s+/gm, '') // Remove list markers
+        .replace(/^#{1,6}\s*/gm, '') // Remove markdown headers
+        .trim();
+    
+    if (!cleanResult) {
+        console.warn(`[TAG-AUTO] Empty result after cleaning, using first candidate: "${candidates[0]}"`);
         return candidates[0];
     }
     
-    // Handle multiple tags (comma-separated)
-    if (cleanResponse.includes(',')) {
-        const selectedTags = cleanResponse.split(',')
+    // Step 3: Handle multiple tags (comma-separated) from old version logic
+    if (cleanResult.includes(',')) {
+        const selectedTags = cleanResult.split(',')
             .map(tag => tag.trim())
-            .map(tag => candidates.find(c => c.toLowerCase() === tag.toLowerCase()))
+            .map(tag => {
+                // Find matching candidate for each tag
+                const normalizedTag = tag.toLowerCase();
+                const match = candidates.find(c => c.toLowerCase() === normalizedTag);
+                return match;
+            })
             .filter(tag => tag !== undefined);
         
         if (selectedTags.length > 0) {
@@ -688,23 +546,16 @@ function parseLLMTagSelection(result, candidates) {
         }
     }
     
-    // Normalize function to handle underscore/space variations
+    // Step 4: Normalize function to handle underscore/space variations
     function normalizeTag(tag) {
         return tag.toLowerCase()
             .replace(/[_\s]/g, '') // Remove underscores and spaces
             .replace(/[^\w]/g, ''); // Remove all non-alphanumeric
     }
     
-    // Try exact matches first (most reliable)
+    // Step 5: Try exact matches first (most reliable)
     for (const candidate of candidates) {
-        if (cleanResponse.toLowerCase() === candidate.toLowerCase()) {
-            console.log(`[TAG-AUTO] Exact match found: "${candidate}"`);
-            return candidate;
-        }
-    }
-    
-    // Try word boundary matches
-    for (const candidate of candidates) {
+        // Check for exact word boundary matches
         const escapedCandidate = candidate.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
         const exactRegex = new RegExp(`\\b${escapedCandidate}\\b`, 'gi');
         if (exactRegex.test(cleanResult)) {
@@ -713,17 +564,34 @@ function parseLLMTagSelection(result, candidates) {
         }
     }
     
-    // Try normalized matches (handles underscore/space differences)
-    const normalizedResponse = normalizeTag(cleanResponse);
+    // Step 6: Try normalized matches (handles underscore/space differences)
+    const normalizedResult = normalizeTag(cleanResult);
     for (const candidate of candidates) {
-        const normalizedResponse = normalizeTag(candidate);
-        if (normalizedResult === normalizedResponse) {
+        const normalizedCandidate = normalizeTag(candidate);
+        // Exact normalized match (highest priority)
+        if (normalizedResult === normalizedCandidate) {
             console.log(`[TAG-AUTO] Exact normalized match found: "${candidate}"`);
             return candidate;
         }
     }
     
-    // Try partial word matches
+    // Step 6b: Try partial normalized matches (commented out - too restrictive)
+    // TODO: Implement smarter context-based matching instead of length-based restrictions
+    /*
+    for (const candidate of candidates) {
+        const normalizedCandidate = normalizeTag(candidate);
+        // Only allow if the result is reasonably long and significantly contained
+        if (normalizedResult.length >= 4 && normalizedCandidate.length >= 4) {
+            if (normalizedResult.includes(normalizedCandidate) || 
+                (normalizedCandidate.includes(normalizedResult) && normalizedResult.length >= normalizedCandidate.length * 0.7)) {
+                console.log(`[TAG-AUTO] Partial normalized match found: "${candidate}" (normalized: "${normalizedCandidate}" in "${normalizedResult}")`);
+                return candidate;
+            }
+        }
+    }
+    */
+    
+    // Step 7: Try partial word matches
     for (const candidate of candidates) {
         if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
             console.log(`[TAG-AUTO] Partial match found: "${candidate}"`);
@@ -736,7 +604,7 @@ function parseLLMTagSelection(result, candidates) {
         }
     }
     
-    // Extract potential tag from last line/word
+    // Step 8: Extract potential tag from last line/word
     const lines = cleanResult.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     const lastLine = lines[lines.length - 1] || '';
     const words = lastLine.split(/\s+/);
@@ -754,7 +622,7 @@ function parseLLMTagSelection(result, candidates) {
         }
     }
     
-    // Try matching individual words in the result against candidates
+    // Step 9: Try matching individual words in the result against candidates
     const resultWords = cleanResult.toLowerCase().split(/\s+/);
     for (const candidate of candidates) {
         const candidateWords = candidate.toLowerCase().split(/[\s_]+/);
@@ -770,7 +638,7 @@ function parseLLMTagSelection(result, candidates) {
     }
     
     // Last resort: return first candidate
-    console.warn(`[TAG-AUTO] Could not parse LLM response: "${cleanResult}" - using first candidate: "${candidates[0]}"`);
+    console.warn(`[TAG-AUTO] Could not parse LLM response: "${result.substring(0, 200)}..." - using first candidate: "${candidates[0]}"`);
     return candidates[0];
 }
 
@@ -855,7 +723,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
     }
 
-    const result = await directLLMCall(selectionPrompt);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -894,7 +762,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
     }
 
-    const result = await directLLMCall(selectionPrompt);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: LLM raw response for last message:', result);
@@ -942,7 +810,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
-    const result = await directLLMCall(selectionPrompt);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -974,7 +842,7 @@ OUTPUT FORMAT: Return only the selected tag name, nothing else.`;
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
-    const result = await directLLMCall(selectionPrompt);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -1009,7 +877,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
-    const result = await directLLMCall(selectionPrompt);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -1045,7 +913,7 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
-    const result = await directLLMCall(selectionPrompt);
+    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -1324,9 +1192,6 @@ async function processTagForApiSearch(tag, index, batchNumber, strategy) {
 
 // Process individual tag for LLM selection phase
 async function processTagForLLMSelection(apiResult, tagIndex, generationType, stats) {
-    // Add unique request isolation to prevent context bleeding
-    const uniqueRequestId = `${tagIndex}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    console.log(`[TAG-AUTO] Processing LLM selection with unique ID: ${uniqueRequestId} for tag: "${apiResult.tag}"`);
     // Handle different tag types
     if (apiResult.type === 'metadata' || apiResult.type === 'parameter') {
         console.log(`[TAG-AUTO] Batch ${tagIndex}: Using direct result for ${apiResult.type} tag: "${apiResult.result}"`);
@@ -1349,18 +1214,10 @@ async function processTagForLLMSelection(apiResult, tagIndex, generationType, st
                 generationType
             );
             
-            // Validate the selection for the actual tag part
-            const isValid = await validateTagSelection(apiResult.actualTag, bestTag, apiResult.result.candidates);
-            
-            if (isValid) {
-                const finalTag = `${apiResult.metadata} ${bestTag}`;
-                console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selected "${bestTag}" -> final: "${finalTag}" (VALIDATED)`);
-                stats.successfulCorrections++;
-                return finalTag;
-            } else {
-                console.log(`[TAG-AUTO] Batch ${tagIndex}: Rejected "${bestTag}" for mixed tag "${apiResult.actualTag}" (VALIDATION FAILED) - keeping original`);
-                return apiResult.tag; // Keep original mixed tag if validation fails
-            }
+            const finalTag = `${apiResult.metadata} ${bestTag}`;
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selected "${bestTag}" -> final: "${finalTag}"`);
+            stats.successfulCorrections++;
+            return finalTag;
         } else {
             console.log(`[TAG-AUTO] Batch ${tagIndex}: No candidates for mixed tag, keeping original: "${apiResult.tag}"`);
             return apiResult.tag;
@@ -1372,19 +1229,11 @@ async function processTagForLLMSelection(apiResult, tagIndex, generationType, st
             console.log(`[TAG-AUTO] Batch ${tagIndex}: LLM selecting for "${apiResult.tag}" with ${apiResult.result.candidates.length} candidates`);
             
             // Special handling for compound tags that were broken down into components
-            const selectedTag = await handleCompoundTagSelection(apiResult, generationType);
+            const result = await handleCompoundTagSelection(apiResult, generationType);
             
-            // Validate the selection before accepting it
-            const isValid = await validateTagSelection(apiResult.tag, selectedTag, apiResult.result.candidates);
-            
-            if (isValid) {
-                console.log(`[TAG-AUTO] Batch ${tagIndex}: Selected "${selectedTag}" for "${apiResult.tag}" (VALIDATED)`);
-                stats.successfulCorrections++;
-                return selectedTag;
-            } else {
-                console.log(`[TAG-AUTO] Batch ${tagIndex}: Rejected "${selectedTag}" for "${apiResult.tag}" (VALIDATION FAILED) - keeping original`);
-                return apiResult.tag; // Fallback to original if validation fails
-            }
+            console.log(`[TAG-AUTO] Batch ${tagIndex}: Selected "${result}" for "${apiResult.tag}"`);
+            stats.successfulCorrections++;
+            return result;
         } else {
             console.log(`[TAG-AUTO] Batch ${tagIndex}: No candidates found, keeping original: "${apiResult.tag}"`);
             return apiResult.tag;
