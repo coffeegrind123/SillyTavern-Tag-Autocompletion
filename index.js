@@ -738,6 +738,8 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
     const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
+CONTEXT: ${data.prompt}
+
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
 SELECTION CRITERIA:
@@ -1275,13 +1277,6 @@ async function handleCompoundTagSelection(apiResult, generationType) {
         if (componentMatches.length >= 2) {
             // Remove duplicates while preserving order
             const uniqueMatches = [...new Set(componentMatches)];
-            
-            // For certain compound concepts, combine the tags
-            if (shouldCombineComponents(originalTag, uniqueMatches)) {
-                const combined = uniqueMatches.join(', ');
-                console.log(`[TAG-AUTO] Combining components for "${originalTag}": "${combined}"`);
-                return combined;
-            }
         }
         
         // If component matching didn't work well, fall back to single best match
@@ -1290,39 +1285,6 @@ async function handleCompoundTagSelection(apiResult, generationType) {
     
     // Standard single tag selection
     return await selectBestTagWithContext(candidates, originalTag, generationType);
-}
-
-// Determine if components should be combined for compound tags
-function shouldCombineComponents(originalTag, componentMatches) {
-    // Combine for position-related compound tags
-    const positionCompounds = [
-        'on_hands_and_knees', 'hands_and_knees', 'all_fours',
-        'spread_legs', 'legs_spread', 'wide_spread',
-        'bent_over', 'head_down', 'arched_back'
-    ];
-    
-    // Combine for body-part compound tags  
-    const bodyPartCompounds = [
-        'wet_thighs', 'wet_skin', 'small_breasts', 'flat_chest',
-        'pink_hair', 'long_hair', 'hair_over_face'
-    ];
-    
-    // Combine for action compound tags
-    const actionCompounds = [
-        'dripping_fluid', 'fluid_drip', 'clear_fluid',
-        'female_orgasm', 'after_orgasm', 'squirting_liquid'
-    ];
-    
-    const allCompoundTypes = [...positionCompounds, ...bodyPartCompounds, ...actionCompounds];
-    
-    // Check if original tag matches known compound patterns
-    const matchesPattern = allCompoundTypes.some(pattern => 
-        originalTag.toLowerCase().includes(pattern.toLowerCase()) ||
-        pattern.toLowerCase().includes(originalTag.toLowerCase())
-    );
-    
-    // Only combine if we have 2-3 meaningful components and it's a known compound type
-    return matchesPattern && componentMatches.length >= 2 && componentMatches.length <= 3;
 }
 
 // Log processing summary with performance metrics
