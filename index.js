@@ -1414,16 +1414,7 @@ function hookImageGeneration() {
             const eventName = 'sd_prompt_processing';
             console.log('[TAG-AUTO] Using event name:', eventName);
             
-            console.log('[TAG-AUTO] Registering event listener for:', eventName);
-            console.log('[TAG-AUTO] EventSource listeners before:', eventSource.listenerCount ? eventSource.listenerCount(eventName) : 'unknown');
-            
-            // Test event to make sure eventSource is working
-            eventSource.on('message_sent', () => {
-                console.log('[TAG-AUTO] TEST: message_sent event fired - eventSource is working!');
-            });
-            
-            eventSource.on(eventName, (data) => {
-                return new Promise(async (resolve, reject) => {
+            eventSource.on(eventName, async (data) => {
                 console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
                 console.log('[TAG-AUTO] Event data:', data);
                 console.log('[TAG-AUTO] Original prompt length:', data.prompt?.length || 0);
@@ -1439,28 +1430,19 @@ function hookImageGeneration() {
                     try {
                         window.globalPrompt = data.prompt;
                         console.log('[TAG-AUTO] Starting tag correction...');
-                        
-                        // Ensure the async processing completes before continuing
                         const corrected = await correctTagsWithContext(data.prompt, data.generationType);
                         data.prompt = corrected;
                         
                         console.log('[TAG-AUTO] Prompt correction complete!');
                         console.log('[TAG-AUTO] Final prompt:', corrected);
-                        
-                        // Explicit completion signal
-                        console.log('[TAG-AUTO] Extension processing finished - image generation can proceed');
-                        resolve();
                     } catch (error) {
                         console.error('[TAG-AUTO] Error during correction:', error);
                         console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
                         // Don't modify data.prompt - let original prompt through
-                        resolve(); // Still resolve to let image generation continue
                     }
                 } else {
                     console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
-                    resolve();
                 }
-                });
             });
             
             if (extensionSettings.debug) {
