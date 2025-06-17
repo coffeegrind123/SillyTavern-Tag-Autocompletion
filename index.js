@@ -237,14 +237,30 @@ function getProcessingStrategy(generationType) {
 }
 
 function extractContentWithThinkTags(response) {
-    // 1. Extract content from think tags if present
-    const thinkContent = response.match(/<think>([\s\S]*?)<\/think>/i)?.[1] || '';
+    if (!response || typeof response !== 'string') {
+        return '';
+    }
+
+    // 1. Remove all think tags and their content (including variations)
+    const withoutThinkTags = response.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '');
     
-    // 2. Get the rest of the response (outside think tags)
-    const mainContent = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
-    
-    // 3. Combine both sources with basic cleaning
-    return `${thinkContent} ${mainContent}`.trim();
+    // 2. Remove common LLM explanatory patterns
+    const cleaned = withoutThinkTags
+        // Remove trailing explanations after last relevant content
+        .replace(/\n.*$/g, '')
+        // Normalize whitespace
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    // 3. For comma-separated lists, clean each item
+    if (cleaned.includes(',')) {
+        return cleaned.split(',')
+            .map(item => item.trim())
+            .filter(item => item.length > 0)
+            .join(', ');
+    }
+
+    return cleaned;
 }
 
 // Generate fallback search terms using LLM
