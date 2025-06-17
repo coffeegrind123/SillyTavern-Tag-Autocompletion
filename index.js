@@ -22,6 +22,7 @@ let profileSwitchInProgress = false;
 // LLM operation tracking
 let activeLLMOperations = new Set();
 let llmOperationCounter = 0;
+const activeAbortControllers = new Map(); // operationId -> AbortController
 
 // Emergency reset function for stuck operations
 function resetProfileSwitchState() {
@@ -32,20 +33,48 @@ function resetProfileSwitchState() {
 function resetAllOperations() {
     console.log('[TAG-AUTO] Emergency reset of all operations');
     profileSwitchInProgress = false;
+    
+    // Abort all active controllers
+    for (const [operationId, controller] of activeAbortControllers) {
+        try {
+            controller.abort();
+        } catch (e) {
+            console.warn(`[TAG-AUTO] Failed to abort operation ${operationId}:`, e);
+        }
+    }
+    
     activeLLMOperations.clear();
+    activeAbortControllers.clear();
     llmOperationCounter = 0;
 }
 
 // Track LLM operations
-function startLLMOperation(operationName) {
+function startLLMOperation(operationName, abortController = null) {
     const operationId = `${operationName}_${++llmOperationCounter}`;
     activeLLMOperations.add(operationId);
+    
+    if (abortController) {
+        activeAbortControllers.set(operationId, abortController);
+    }
+    
     console.log(`[TAG-AUTO] Started LLM operation: ${operationId} (${activeLLMOperations.size} total active)`);
     return operationId;
 }
 
 function endLLMOperation(operationId) {
     activeLLMOperations.delete(operationId);
+    
+    // Abort and cleanup the controller if it exists
+    const controller = activeAbortControllers.get(operationId);
+    if (controller) {
+        try {
+            controller.abort();
+        } catch (e) {
+            console.warn(`[TAG-AUTO] Failed to abort controller for ${operationId}:`, e);
+        }
+        activeAbortControllers.delete(operationId);
+    }
+    
     console.log(`[TAG-AUTO] Ended LLM operation: ${operationId} (${activeLLMOperations.size} remaining active)`);
 }
 
@@ -64,8 +93,20 @@ function waitForAllLLMOperations() {
         
         if (activeLLMOperations.size > 0) {
             console.warn(`[TAG-AUTO] Timeout waiting for LLM operations. ${activeLLMOperations.size} operations still active:`, Array.from(activeLLMOperations));
+            
+            // Abort all hanging controllers
+            for (const [operationId, controller] of activeAbortControllers) {
+                try {
+                    console.warn(`[TAG-AUTO] Force aborting operation: ${operationId}`);
+                    controller.abort();
+                } catch (e) {
+                    console.warn(`[TAG-AUTO] Failed to abort hanging operation ${operationId}:`, e);
+                }
+            }
+            
             // Force clear to prevent hanging
             activeLLMOperations.clear();
+            activeAbortControllers.clear();
         }
         
         console.log('[TAG-AUTO] All LLM operations completed');
@@ -313,13 +354,13 @@ Examples:
 Return ONLY a comma-separated list of words. No explanations.`;
 
     try {
-        // Track this LLM operation
-        const operationId = startLLMOperation(`fallback_${originalTag}`);
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        // Track this LLM operation with its abort controller
+        const operationId = startLLMOperation(`fallback_${originalTag}`, controller);
         
         try {
-            // Create isolated abort controller to prevent response mixing
-            const controller = new AbortController();
-            
             const result = await globalContext.generateQuietPrompt(
                 prompt, false, false, null, null, null, null, controller.signal
             );
@@ -418,13 +459,13 @@ Examples:
 Answer ONLY "YES" or "NO".`;
 
     try {
-        // Track this LLM operation
-        const operationId = startLLMOperation(`sufficiency_${originalTag}`);
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        // Track this LLM operation with its abort controller
+        const operationId = startLLMOperation(`sufficiency_${originalTag}`, controller);
         
         try {
-            // Create isolated abort controller to prevent response mixing
-            const controller = new AbortController();
-            
             const result = await globalContext.generateQuietPrompt(
                 prompt, false, false, null, null, null, null, controller.signal
             );
@@ -478,13 +519,13 @@ ${originalTag.includes('_') ?
 Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
 
     try {
-        // Track this LLM operation
-        const operationId = startLLMOperation(`evaluation_${originalTag}`);
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        // Track this LLM operation with its abort controller
+        const operationId = startLLMOperation(`evaluation_${originalTag}`, controller);
         
         try {
-            // Create isolated abort controller to prevent response mixing
-            const controller = new AbortController();
-            
             const result = await globalContext.generateQuietPrompt(
                 prompt, false, false, null, null, null, null, controller.signal
             );
@@ -834,13 +875,13 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
     }
 
-    // Track this LLM operation
-    const operationId = startLLMOperation(`select_character_${originalTag}`);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    // Track this LLM operation with its abort controller
+    const operationId = startLLMOperation(`select_character_${originalTag}`, controller);
     
     try {
-        // Create isolated abort controller to prevent response mixing
-        const controller = new AbortController();
-        
         const result = await globalContext.generateQuietPrompt(
             selectionPrompt, false, false, null, null, null, null, controller.signal
         );
@@ -893,13 +934,13 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
     }
 
-    // Track this LLM operation
-    const operationId = startLLMOperation(`select_lastmsg_${originalTag}`);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    // Track this LLM operation with its abort controller
+    const operationId = startLLMOperation(`select_lastmsg_${originalTag}`, controller);
     
     try {
-        // Create isolated abort controller to prevent response mixing
-        const controller = new AbortController();
-        
         const result = await globalContext.generateQuietPrompt(
             selectionPrompt, false, false, null, null, null, null, controller.signal
         );
@@ -953,13 +994,13 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
-    // Track this LLM operation
-    const operationId = startLLMOperation(`select_scenario_${originalTag}`);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    // Track this LLM operation with its abort controller
+    const operationId = startLLMOperation(`select_scenario_${originalTag}`, controller);
     
     try {
-        // Create isolated abort controller to prevent response mixing
-        const controller = new AbortController();
-        
         const result = await globalContext.generateQuietPrompt(
             selectionPrompt, false, false, null, null, null, null, controller.signal
         );
@@ -997,13 +1038,13 @@ OUTPUT FORMAT: Return only the selected tag name, nothing else.`;
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
-    // Track this LLM operation
-    const operationId = startLLMOperation(`select_generic_${originalTag}`);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    // Track this LLM operation with its abort controller
+    const operationId = startLLMOperation(`select_generic_${originalTag}`, controller);
     
     try {
-        // Create isolated abort controller to prevent response mixing
-        const controller = new AbortController();
-        
         const result = await globalContext.generateQuietPrompt(
             selectionPrompt, false, false, null, null, null, null, controller.signal
         );
@@ -1044,13 +1085,13 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
-    // Track this LLM operation
-    const operationId = startLLMOperation(`select_user_${originalTag}`);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    // Track this LLM operation with its abort controller
+    const operationId = startLLMOperation(`select_user_${originalTag}`, controller);
     
     try {
-        // Create isolated abort controller to prevent response mixing
-        const controller = new AbortController();
-        
         const result = await globalContext.generateQuietPrompt(
             selectionPrompt, false, false, null, null, null, null, controller.signal
         );
@@ -1092,13 +1133,13 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
-    // Track this LLM operation
-    const operationId = startLLMOperation(`select_background_${originalTag}`);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    // Track this LLM operation with its abort controller
+    const operationId = startLLMOperation(`select_background_${originalTag}`, controller);
     
     try {
-        // Create isolated abort controller to prevent response mixing
-        const controller = new AbortController();
-        
         const result = await globalContext.generateQuietPrompt(
             selectionPrompt, false, false, null, null, null, null, controller.signal
         );
@@ -1871,6 +1912,12 @@ const init = async () => {
 // Expose emergency reset functions globally for debugging
 window.tagAutoResetProfileSwitch = resetProfileSwitchState;
 window.tagAutoResetAllOperations = resetAllOperations;
+window.tagAutoStatus = function() {
+    console.log('[TAG-AUTO] Current status:');
+    console.log('- Active LLM operations:', activeLLMOperations.size, Array.from(activeLLMOperations));
+    console.log('- Active abort controllers:', activeAbortControllers.size, Array.from(activeAbortControllers.keys()));
+    console.log('- Profile switch in progress:', profileSwitchInProgress);
+};
 
 // Test function to verify think tag stripping works
 window.tagAutoTestThinkStripping = function(text) {
