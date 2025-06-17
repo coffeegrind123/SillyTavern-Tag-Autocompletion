@@ -1414,6 +1414,9 @@ function hookImageGeneration() {
             const eventName = 'sd_prompt_processing';
             console.log('[TAG-AUTO] Using event name:', eventName);
             
+            console.log('[TAG-AUTO] Registering event listener for:', eventName);
+            console.log('[TAG-AUTO] EventSource listeners before:', eventSource.listenerCount ? eventSource.listenerCount(eventName) : 'unknown');
+            
             eventSource.on(eventName, (data) => {
                 return new Promise(async (resolve, reject) => {
                 console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
