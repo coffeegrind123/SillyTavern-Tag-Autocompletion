@@ -262,7 +262,12 @@ Examples:
 Return ONLY a comma-separated list of words. No explanations.`;
 
     try {
-        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        const result = await globalContext.generateQuietPrompt(
+            prompt, false, false, null, null, null, null, controller.signal
+        );
         
         // Remove thinking tags and explanatory content
         const cleanResult = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
@@ -355,7 +360,12 @@ Examples:
 Answer ONLY "YES" or "NO".`;
 
     try {
-        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        const result = await globalContext.generateQuietPrompt(
+            prompt, false, false, null, null, null, null, controller.signal
+        );
         
         // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
         const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
@@ -403,7 +413,12 @@ ${originalTag.includes('_') ?
 Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
 
     try {
-        const result = await globalContext.generateQuietPrompt(prompt, false, false);
+        // Create isolated abort controller to prevent response mixing
+        const controller = new AbortController();
+        
+        const result = await globalContext.generateQuietPrompt(
+            prompt, false, false, null, null, null, null, controller.signal
+        );
         
         // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
         const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
@@ -747,7 +762,12 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Character selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    const result = await globalContext.generateQuietPrompt(
+        selectionPrompt, false, false, null, null, null, null, controller.signal
+    );
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -794,7 +814,12 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Last message selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    const result = await globalContext.generateQuietPrompt(
+        selectionPrompt, false, false, null, null, null, null, controller.signal
+    );
     
     if (extensionSettings.debug) {
         console.log('Tag Autocompletion: LLM raw response for last message:', result);
@@ -842,7 +867,12 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Scenario selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    const result = await globalContext.generateQuietPrompt(
+        selectionPrompt, false, false, null, null, null, null, controller.signal
+    );
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -874,7 +904,12 @@ OUTPUT FORMAT: Return only the selected tag name, nothing else.`;
         console.log('Tag Autocompletion: Generic selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    const result = await globalContext.generateQuietPrompt(
+        selectionPrompt, false, false, null, null, null, null, controller.signal
+    );
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -909,7 +944,12 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: User character selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    const result = await globalContext.generateQuietPrompt(
+        selectionPrompt, false, false, null, null, null, null, controller.signal
+    );
     return parseLLMTagSelection(result, candidates);
 }
 
@@ -945,7 +985,12 @@ OUTPUT FORMAT: Return only the selected tag name (or comma-separated tags if mul
         console.log('Tag Autocompletion: Background selection prompt:', selectionPrompt);
     }
 
-    const result = await globalContext.generateQuietPrompt(selectionPrompt, false, false);
+    // Create isolated abort controller to prevent response mixing
+    const controller = new AbortController();
+    
+    const result = await globalContext.generateQuietPrompt(
+        selectionPrompt, false, false, null, null, null, null, controller.signal
+    );
     return parseLLMTagSelection(result, candidates);
 }
 
