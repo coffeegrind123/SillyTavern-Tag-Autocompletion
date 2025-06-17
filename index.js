@@ -330,14 +330,14 @@ function getProcessingStrategy(generationType) {
 
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
-    // Smart context selection to provide relevant semantic context
+    // Intelligent context selection to minimize semantic pollution
     const allTags = window.globalPrompt
-        .split(',')
+        .split(',') 
         .map(tag => tag.trim())
         .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')));
     
-    // Select more context tags but prioritize semantic relevance
-    const contextTags = allTags.slice(0, 8);  // Increased from 3 to 8 for better context
+    // Use moderate context to balance relevance and pollution
+    const contextTags = allTags.slice(0, 5);  // Reduced from 8 to 5 for cleaner context
     const limitedContext = contextTags.join(', ');
 
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that ONLY relate to the same semantic category and visual concept.
@@ -360,9 +360,15 @@ CATEGORY EXAMPLES:
 - Environment: "steel_walls" → walls, wall, steel, metal
 - Objects: "hatch_closed" → hatch, door, closed, entrance
 
-IMPORTANT: Focus ONLY on the original tag's semantic domain. Context is for understanding the scene, NOT for mixing categories.
+ABSOLUTE RULE: Generate terms that are DIRECT components, synonyms, or logical variations of the original tag ONLY. Context provides scene understanding but must NEVER influence the generated terms.
 
-Return ONLY a comma-separated list of semantically consistent words. No explanations or reasoning.`;
+PROHIBITED CONTEXT MIXING:
+- Character/body terms must NEVER generate environmental terms
+- Environmental terms must NEVER generate character/body terms  
+- Lighting terms must NEVER generate object/action terms
+- Action terms must NEVER generate environmental terms
+
+Return ONLY a comma-separated list of words that are direct components or close synonyms of the original tag. Ignore all context that doesn't directly relate to the original tag's meaning. No explanations.`;
 
     try {
         // Create isolated abort controller to prevent response mixing
@@ -514,7 +520,12 @@ Search results: ${candidates.join(', ')}
 
 CONTEXT: ${tags}
 
-Are these search results good quality matches for the original tag? 
+Are these search results good quality matches for the original tag?
+
+QUALITY CRITERIA:
+- Results should maintain the same semantic category and meaning as the original
+- Reject candidate pools that are contextually inappropriate or overly explicit
+- For general terms like "female", reject if all candidates are sexual/explicit variants
 
 ${originalTag.includes('_') ? 
     `This is a compound tag "${originalTag}". Check if the results preserve the FULL meaning:
@@ -524,10 +535,11 @@ ${originalTag.includes('_') ?
     `This is a single-word tag "${originalTag}". Check if any result is a good match:
 - Look for exact matches, plurals, or very similar variations
 - Examples: "indoor" matches "indoors", "cat" matches "cats", "smile" matches "smiling"
+- REJECT if all candidates are inappropriate variations (e.g., all sexual terms for general words)
 - One excellent match is sufficient for single-word tags.`
 }
 
-Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist.`;
+Answer ONLY "YES" if the results adequately represent the original meaning, or ONLY "NO" if no good matches exist or all candidates are inappropriate.`;
 
     try {
         // Create isolated abort controller to prevent response mixing
@@ -1276,31 +1288,28 @@ SEMANTIC CATEGORY VIOLATIONS (ALWAYS INVALID):
 - Actions → Food: "dropped" → "dropped food" (unless person is dropping food)
 - Environmental → Character traits: "metal_surface" → "mahjong tile" (objects vs game pieces)
 
-VALID CONVERSIONS (ACCEPTABLE):
-- Simplification: "metal_floor" → "floor", "bright_lighting" → "lighting"
+ACCEPTABLE CONVERSIONS:
+- Simplification: "metal_floor" → "floor", "steel_walls" → "metal" 
 - Synonyms: "shivering" → "trembling", "naked" → "nude"
 - Format fixes: "bare_foot" → "barefoot", "wide_eyes" → "wide-eyed"
-- Category-consistent specificity: "dress" → "white dress" (if white context exists)
+- Logical specificity: "hugging_own_knees" → "hugging own legs" (knees are part of legs)
+- Component matching: "knee_scrape" → "knees" (knees are the relevant body part)
+- Single→plural: "tear" → "tears"
 
-VALIDATION PROCESS:
-1. Identify the semantic category of the original tag
-2. Identify the semantic category of the selected tag  
-3. If categories don't match → INVALID
-4. If the selected tag changes core meaning → INVALID
-5. Check if a better candidate exists in the available list
+MAJOR VIOLATIONS (ALWAYS INVALID):
+- Body parts → Different body parts: "pink_nipples" → "blonde hair"
+- Body parts → Clothing: "nipples" → "shirt" 
+- Lighting → Actions: "bright_lighting" → "lighting cigarette"
+- Actions → Objects: "hugging_knees" → "lighting practice"
+- Character traits → Environment: "young" → "steel_walls"
 
-EXAMPLES OF VALID SELECTIONS:
-- "metal_floor" → "floor" (simplified but kept meaning)
-- "shivering" → "trembling" (good synonym)
-- "bare_foot" → "barefoot" (format correction)
-- "wide_eyes" → "wide-eyed" (format correction, same meaning)
-- "hair_over_shoulder" → "hair over shoulder" (underscore to space conversion)
+VALIDATION APPROACH:
+- Focus on MAJOR semantic violations, not minor technicalities
+- Allow reasonable simplifications and component matches
+- Only reject if the conversion fundamentally changes meaning or crosses major category boundaries
 
 RESPONSE FORMAT:
-- If the selection preserves semantic category and meaning: "VALID"
-- If the selection violates semantic categories or changes core meaning: "INVALID: [suggest_best_alternative_from_candidates]"
-
-Be extremely strict about semantic category violations. When in doubt, reject the conversion.
+Answer "VALID" for reasonable conversions or "INVALID: [better_alternative]" only for major violations.
 
 Answer ONLY "VALID" or "INVALID: [alternative]". No explanations or reasoning.`;
 
