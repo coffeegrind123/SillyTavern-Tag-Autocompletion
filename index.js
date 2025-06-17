@@ -1417,6 +1417,11 @@ function hookImageGeneration() {
             console.log('[TAG-AUTO] Registering event listener for:', eventName);
             console.log('[TAG-AUTO] EventSource listeners before:', eventSource.listenerCount ? eventSource.listenerCount(eventName) : 'unknown');
             
+            // Test event to make sure eventSource is working
+            eventSource.on('message_sent', () => {
+                console.log('[TAG-AUTO] TEST: message_sent event fired - eventSource is working!');
+            });
+            
             eventSource.on(eventName, (data) => {
                 return new Promise(async (resolve, reject) => {
                 console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
