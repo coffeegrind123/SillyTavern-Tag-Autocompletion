@@ -236,6 +236,17 @@ function getProcessingStrategy(generationType) {
     }
 }
 
+function extractContentWithThinkTags(response) {
+    // 1. Extract content from think tags if present
+    const thinkContent = response.match(/<think>([\s\S]*?)<\/think>/i)?.[1] || '';
+    
+    // 2. Get the rest of the response (outside think tags)
+    const mainContent = response.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+    
+    // 3. Combine both sources with basic cleaning
+    return `${thinkContent} ${mainContent}`.trim();
+}
+
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that describe the same visual concept.
@@ -257,12 +268,11 @@ Return ONLY a comma-separated list of words. No explanations.`;
         const result = await directLLMCall(prompt);
         
         // Remove thinking tags and explanatory content
-        const cleanResult = result.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+        const cleanResult = extractContentWithThinkTags(result);
         
-        const terms = cleanResult
-            .split(/[,\n]/)
-            .map(term => term.trim().replace(/['"()\[\]*]/g, ''))
-            .filter(term => term.length > 0 && term !== originalTag);
+        const terms = cleanResult.split(',')
+            .map(tag => tag.trim())
+            .filter(tag => tag.length > 0 && tag !== originalTag);
         
         console.log(`[TAG-AUTO] Generated fallback terms for "${originalTag}":`, terms);
         
@@ -382,11 +392,12 @@ Answer ONLY "YES" if the results adequately represent the original meaning, or O
         const result = await directLLMCall(prompt);
         
         // Strip think tags and clean the response (handle all variations: <think>, < think>, <THINK>, < THINK>)
-        const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
-        const answer = cleanResult.replace(/[^\w]/g, ''); // Remove non-word characters
-        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${answer} (from raw: ${result.substring(0, 100)}...)`);
+        const cleanAnswer = extractContentWithThinkTags(result)
+        .replace(/[^\w]/g, '')
+        .toUpperCase();
+        console.log(`[TAG-AUTO] LLM evaluation for "${originalTag}" with candidates [${candidates.join(', ')}]: ${cleanAnswer} (from raw: ${result.substring(0, 100)}...)`);
         
-        return answer === 'YES';
+        return cleanAnswer === 'YES';
     } catch (error) {
         console.warn('[TAG-AUTO] Failed to evaluate search results (LLM error):', error);
         // Fallback: assume results are poor if LLM fails, trigger fallback search
@@ -566,7 +577,7 @@ async function directLLMCall(prompt) {
         console.log('[TAG-AUTO] Direct LLM call result:', data);
         
         // Extract content from response
-        const content = data.choices?.[0]?.message?.content || data.content || '';
+        const content = extractContentWithThinkTags(data.choices?.[0]?.message?.content || '');
         return content;
         
     } catch (error) {
@@ -598,11 +609,12 @@ Answer ONLY "YES" if semantically reasonable, or "NO" if contradictory/unrelated
 
     try {
         const result = await directLLMCall(prompt);
-        const cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim().toUpperCase();
-        const answer = cleanResult.replace(/[^\w]/g, '');
+        const cleanAnswer = extractContentWithThinkTags(result)
+        .replace(/[^\w]/g, '')
+        .toUpperCase();
         
-        console.log(`[TAG-AUTO] Tag selection validation for "${originalTag}" → "${selectedTag}": ${answer}`);
-        return answer === 'YES';
+        console.log(`[TAG-AUTO] Tag selection validation for "${originalTag}" → "${selectedTag}": ${cleanAnswer}`);
+        return cleanAnswer === 'YES';
     } catch (error) {
         console.warn('[TAG-AUTO] Validation failed, assuming valid:', error);
         return true; // Default to valid if validation fails
@@ -611,16 +623,16 @@ Answer ONLY "YES" if semantically reasonable, or "NO" if contradictory/unrelated
 
 // Helper function to parse LLM tag selection response
 function parseLLMTagSelection(result, candidates) {
-    // Remove think tags and all content between them
-    let cleanResult = result.replace(/<\s*think\s*>[\s\S]*?<\/\s*think\s*>/gi, '').trim();
+    // First clean the response while preserving think tag content
+    const cleanResponse = extractContentWithThinkTags(result);
     
-    if (!cleanResult) {
+    if (!cleanResponse) {
         return candidates[0];
     }
     
     // Handle multiple tags (comma-separated)
-    if (cleanResult.includes(',')) {
-        const selectedTags = cleanResult.split(',')
+    if (cleanResponse.includes(',')) {
+        const selectedTags = cleanResponse.split(',')
             .map(tag => tag.trim())
             .map(tag => candidates.find(c => c.toLowerCase() === tag.toLowerCase()))
             .filter(tag => tag !== undefined);
@@ -640,7 +652,7 @@ function parseLLMTagSelection(result, candidates) {
     
     // Try exact matches first (most reliable)
     for (const candidate of candidates) {
-        if (cleanResult.toLowerCase() === candidate.toLowerCase()) {
+        if (cleanResponse.toLowerCase() === candidate.toLowerCase()) {
             console.log(`[TAG-AUTO] Exact match found: "${candidate}"`);
             return candidate;
         }
@@ -657,10 +669,10 @@ function parseLLMTagSelection(result, candidates) {
     }
     
     // Try normalized matches (handles underscore/space differences)
-    const normalizedResult = normalizeTag(cleanResult);
+    const normalizedResponse = normalizeTag(cleanResponse);
     for (const candidate of candidates) {
-        const normalizedCandidate = normalizeTag(candidate);
-        if (normalizedResult === normalizedCandidate) {
+        const normalizedResponse = normalizeTag(candidate);
+        if (normalizedResult === normalizedResponse) {
             console.log(`[TAG-AUTO] Exact normalized match found: "${candidate}"`);
             return candidate;
         }
