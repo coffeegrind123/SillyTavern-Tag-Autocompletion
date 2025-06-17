@@ -1414,35 +1414,45 @@ function hookImageGeneration() {
             const eventName = 'sd_prompt_processing';
             console.log('[TAG-AUTO] Using event name:', eventName);
             
-            eventSource.on(eventName, async (data) => {
-                console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
-                console.log('[TAG-AUTO] Event data:', data);
-                console.log('[TAG-AUTO] Original prompt length:', data.prompt?.length || 0);
-                console.log('[TAG-AUTO] Original prompt:', data.prompt);
-                console.log('[TAG-AUTO] Generation type:', data.generationType);
-                console.log('[TAG-AUTO] Extension enabled:', extensionSettings.enabled);
-                
-                // Debug: Check what profile is active when the event fires
-                const currentProfile = getCurrentProfile();
-                console.log('[TAG-AUTO] Current profile when event fires:', currentProfile?.name || 'None');
-                
-                if (extensionSettings.enabled && data.prompt) {
+            eventSource.on(eventName, (data) => {
+                return new Promise(async (resolve, reject) => {
                     try {
-                        window.globalPrompt = data.prompt;
-                        console.log('[TAG-AUTO] Starting tag correction...');
-                        const corrected = await correctTagsWithContext(data.prompt, data.generationType);
-                        data.prompt = corrected;
+                        console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
+                        console.log('[TAG-AUTO] Event data:', data);
+                        console.log('[TAG-AUTO] Original prompt length:', data.prompt?.length || 0);
+                        console.log('[TAG-AUTO] Original prompt:', data.prompt);
+                        console.log('[TAG-AUTO] Generation type:', data.generationType);
+                        console.log('[TAG-AUTO] Extension enabled:', extensionSettings.enabled);
                         
-                        console.log('[TAG-AUTO] Prompt correction complete!');
-                        console.log('[TAG-AUTO] Final prompt:', corrected);
+                        // Debug: Check what profile is active when the event fires
+                        const currentProfile = getCurrentProfile();
+                        console.log('[TAG-AUTO] Current profile when event fires:', currentProfile?.name || 'None');
+                        
+                        if (extensionSettings.enabled && data.prompt) {
+                            try {
+                                window.globalPrompt = data.prompt;
+                                console.log('[TAG-AUTO] Starting tag correction...');
+                                const corrected = await correctTagsWithContext(data.prompt, data.generationType);
+                                data.prompt = corrected;
+                                
+                                console.log('[TAG-AUTO] Prompt correction complete!');
+                                console.log('[TAG-AUTO] Final prompt:', corrected);
+                                console.log('[TAG-AUTO] Extension processing finished - image generation can proceed');
+                            } catch (error) {
+                                console.error('[TAG-AUTO] Error during correction:', error);
+                                console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
+                                // Don't modify data.prompt - let original prompt through
+                            }
+                        } else {
+                            console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
+                        }
+                        
+                        resolve(); // Always resolve to let image generation continue
                     } catch (error) {
-                        console.error('[TAG-AUTO] Error during correction:', error);
-                        console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
-                        // Don't modify data.prompt - let original prompt through
+                        console.error('[TAG-AUTO] Unexpected error in event handler:', error);
+                        resolve(); // Resolve even on error to prevent hanging
                     }
-                } else {
-                    console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
-                }
+                });
             });
             
             if (extensionSettings.debug) {
