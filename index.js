@@ -1400,7 +1400,9 @@ function hookImageGeneration() {
         console.log('[TAG-AUTO] - eventSource:', !!eventSource);
         console.log('[TAG-AUTO] - eventSource type:', typeof eventSource);
         console.log('[TAG-AUTO] - event_types available:', !!context.event_types);
-        console.log('[TAG-AUTO] - SD_PROMPT_PROCESSING:', context.event_types?.SD_PROMPT_PROCESSING);
+        console.log('[TAG-AUTO] - SD_PROMPT_PROCESSING via context:', context.event_types?.SD_PROMPT_PROCESSING);
+        console.log('[TAG-AUTO] - window.event_types available:', !!window.event_types);
+        console.log('[TAG-AUTO] - SD_PROMPT_PROCESSING via window:', window.event_types?.SD_PROMPT_PROCESSING);
         
         if (eventSource) {
             // Test if we can listen to any events
@@ -1408,8 +1410,10 @@ function hookImageGeneration() {
                 console.log('[TAG-AUTO] Test event: message_sent fired');
             });
             
-            // Use the event constant from context if available, otherwise use string
-            const eventName = context.event_types?.SD_PROMPT_PROCESSING || 'sd_prompt_processing';
+            // Use the event constant - try multiple sources
+            const eventName = context.event_types?.SD_PROMPT_PROCESSING || 
+                            window.event_types?.SD_PROMPT_PROCESSING || 
+                            'sd_prompt_processing';
             console.log('[TAG-AUTO] Using event name:', eventName);
             
             eventSource.on(eventName, (data) => {
