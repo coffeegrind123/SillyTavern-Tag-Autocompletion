@@ -1404,27 +1404,14 @@ function hookImageGeneration() {
         console.log('[TAG-AUTO] - window.event_types available:', !!window.event_types);
         console.log('[TAG-AUTO] - SD_PROMPT_PROCESSING via window:', window.event_types?.SD_PROMPT_PROCESSING);
         
-        // Try to import event_types directly
-        let event_types_import = null;
-        try {
-            event_types_import = await import('../script.js').then(m => m.event_types);
-            console.log('[TAG-AUTO] - event_types via import:', !!event_types_import);
-            console.log('[TAG-AUTO] - SD_PROMPT_PROCESSING via import:', event_types_import?.SD_PROMPT_PROCESSING);
-        } catch (e) {
-            console.log('[TAG-AUTO] - Failed to import event_types:', e.message);
-        }
-        
         if (eventSource) {
             // Test if we can listen to any events
             eventSource.on('message_sent', () => {
                 console.log('[TAG-AUTO] Test event: message_sent fired');
             });
             
-            // Use the event constant - try multiple sources
-            const eventName = context.event_types?.SD_PROMPT_PROCESSING || 
-                            window.event_types?.SD_PROMPT_PROCESSING || 
-                            event_types_import?.SD_PROMPT_PROCESSING ||
-                            'sd_prompt_processing';
+            // Use the hardcoded string since event_types constant isn't accessible to extensions
+            const eventName = 'sd_prompt_processing';
             console.log('[TAG-AUTO] Using event name:', eventName);
             
             eventSource.on(eventName, (data) => {
