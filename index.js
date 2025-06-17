@@ -330,34 +330,39 @@ function getProcessingStrategy(generationType) {
 
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
-    // Limit context to prevent environmental pollution
-    const limitedContext = window.globalPrompt
+    // Smart context selection to provide relevant semantic context
+    const allTags = window.globalPrompt
         .split(',')
         .map(tag => tag.trim())
-        .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')))
-        .slice(0, 3)  // Only use first 3 other tags to minimize pollution
-        .join(', ');
+        .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')));
+    
+    // Select more context tags but prioritize semantic relevance
+    const contextTags = allTags.slice(0, 8);  // Increased from 3 to 8 for better context
+    const limitedContext = contextTags.join(', ');
 
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that ONLY relate to the same semantic category and visual concept.
 
-LIMITED CONTEXT: ${limitedContext}
+RELEVANT CONTEXT: ${limitedContext}
 
-STRICT REQUIREMENTS:
-- Stay within the same semantic category (body→body, pose→pose, clothing→clothing, lighting→lighting)
-- NO environmental terms for body/clothing tags
-- NO body terms for environmental tags  
-- NO object terms for action tags
-- Break compound tags into their meaningful components ONLY
+CRITICAL SEMANTIC RULES:
+- NEVER cross semantic boundaries: body parts must stay body parts, lighting must stay lighting, poses must stay poses
+- Environmental context (rooms, walls, floors) should NEVER influence body/clothing/pose tags
+- Character traits (age, gender) should NEVER influence environmental/object tags
+- Break compound tags into their core components while preserving meaning
+- Ignore unrelated scene elements when generating terms
 
-Examples:
-- "bright_lighting" → lighting, light, bright, illumination
-- "pink_nipples" → nipples, nipple, pink, breast
-- "knee_scrape" → knee, scrape, injury, bruise  
-- "hugging_own_knees" → hugging, embrace, knees, sitting
-- "fully_nude" → nude, naked, bare, exposed
-- "steel_walls" → walls, wall, steel, metal
+CATEGORY EXAMPLES:
+- Body: "pink_nipples" → nipples, nipple, pink, breast
+- Lighting: "bright_lighting" → lighting, light, bright, illumination  
+- Pose: "hugging_own_knees" → hugging, embrace, knees, sitting
+- Injury: "knee_scrape" → knee, scrape, injury, bruise
+- Nudity: "fully_nude" → nude, naked, bare, exposed
+- Environment: "steel_walls" → walls, wall, steel, metal
+- Objects: "hatch_closed" → hatch, door, closed, entrance
 
-Return ONLY a comma-separated list of semantically consistent words. No explanations.`;
+IMPORTANT: Focus ONLY on the original tag's semantic domain. Context is for understanding the scene, NOT for mixing categories.
+
+Return ONLY a comma-separated list of semantically consistent words. No explanations or reasoning.`;
 
     try {
         // Create isolated abort controller to prevent response mixing
@@ -1250,27 +1255,39 @@ async function validateTagSelection(originalTag, selectedTag, allCandidates, con
         return { isValid: false, reason: 'body_clothing_confusion' };
     }
     
-    const prompt = `You are a semantic validator for danbooru/e621 tags. Check if this tag selection makes sense.
+    const prompt = `You are a semantic validator for danbooru/e621 tags. Your job is to catch semantic category violations and nonsensical tag conversions.
 
 ORIGINAL TAG: "${originalTag}"
 SELECTED TAG: "${selectedTag}"
 ALL AVAILABLE CANDIDATES: ${allCandidates.join(', ')}
 CONTEXT: ${context}
 
-VALIDATION RULES:
-1. The selected tag should capture the core visual/descriptive meaning of the original
-2. Reject selections that change semantic category (e.g., lighting → smoking, body parts → clothing)
-3. Reject selections that are contextually inappropriate 
-4. Consider if other candidates would be better matches
+CORE VALIDATION PRINCIPLE:
+Tags must stay within their semantic category. Any conversion that changes the fundamental meaning or category should be REJECTED.
 
-EXAMPLES OF INVALID SELECTIONS:
-- "bright_lighting" → "lighting cigarette" (lighting context changed to smoking)
-- "pink_nipples" → "blonde hair" (body part changed to hair color)
-- "indoor" → "white dress" (location changed to clothing)
-- "knee_scrape" → "naked shirt" (injury changed to clothing item)
-- "hugging_own_knees" → "lighting practice" (action changed to lighting context)
-- "fully_nude" → "light bulb" (nudity changed to object)
-- "dropped" → "dropped food" (person falling changed to food falling)
+SEMANTIC CATEGORY VIOLATIONS (ALWAYS INVALID):
+- Body parts → Different body parts: "pink_nipples" → "blonde hair" 
+- Body parts → Clothing: "nipples" → "shirt", "breast" → "dress"
+- Lighting → Actions: "bright_lighting" → "lighting cigarette"
+- Actions → Objects: "hugging_knees" → "lighting practice" 
+- Nudity → Objects: "fully_nude" → "light bulb"
+- Injuries → Clothing: "knee_scrape" → "naked shirt"
+- Locations → Clothing: "indoor" → "white dress"
+- Actions → Food: "dropped" → "dropped food" (unless person is dropping food)
+- Environmental → Character traits: "metal_surface" → "mahjong tile" (objects vs game pieces)
+
+VALID CONVERSIONS (ACCEPTABLE):
+- Simplification: "metal_floor" → "floor", "bright_lighting" → "lighting"
+- Synonyms: "shivering" → "trembling", "naked" → "nude"
+- Format fixes: "bare_foot" → "barefoot", "wide_eyes" → "wide-eyed"
+- Category-consistent specificity: "dress" → "white dress" (if white context exists)
+
+VALIDATION PROCESS:
+1. Identify the semantic category of the original tag
+2. Identify the semantic category of the selected tag  
+3. If categories don't match → INVALID
+4. If the selected tag changes core meaning → INVALID
+5. Check if a better candidate exists in the available list
 
 EXAMPLES OF VALID SELECTIONS:
 - "metal_floor" → "floor" (simplified but kept meaning)
@@ -1279,13 +1296,13 @@ EXAMPLES OF VALID SELECTIONS:
 - "wide_eyes" → "wide-eyed" (format correction, same meaning)
 - "hair_over_shoulder" → "hair over shoulder" (underscore to space conversion)
 
-Answer ONLY "VALID" if the selection makes semantic sense, or "INVALID" if it doesn't.
-If INVALID, suggest the best alternative from the candidates list.
+RESPONSE FORMAT:
+- If the selection preserves semantic category and meaning: "VALID"
+- If the selection violates semantic categories or changes core meaning: "INVALID: [suggest_best_alternative_from_candidates]"
 
-FORMAT: 
-VALID
-OR
-INVALID: [best_alternative_tag]`;
+Be extremely strict about semantic category violations. When in doubt, reject the conversion.
+
+Answer ONLY "VALID" or "INVALID: [alternative]". No explanations or reasoning.`;
 
     try {
         // Create isolated abort controller to prevent response mixing
