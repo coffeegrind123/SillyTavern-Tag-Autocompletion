@@ -1406,7 +1406,8 @@ function hookImageGeneration() {
                 console.log('[TAG-AUTO] Test event: message_sent fired');
             });
             
-            eventSource.on('sd_prompt_processing', async (data) => {
+            eventSource.on(event_types.SD_PROMPT_PROCESSING, (data) => {
+                return new Promise(async (resolve, reject) => {
                 console.log('[TAG-AUTO] *** SD PROMPT PROCESSING EVENT TRIGGERED ***');
                 console.log('[TAG-AUTO] Event data:', data);
                 console.log('[TAG-AUTO] Original prompt length:', data.prompt?.length || 0);
@@ -1422,19 +1423,28 @@ function hookImageGeneration() {
                     try {
                         window.globalPrompt = data.prompt;
                         console.log('[TAG-AUTO] Starting tag correction...');
+                        
+                        // Ensure the async processing completes before continuing
                         const corrected = await correctTagsWithContext(data.prompt, data.generationType);
                         data.prompt = corrected;
                         
                         console.log('[TAG-AUTO] Prompt correction complete!');
                         console.log('[TAG-AUTO] Final prompt:', corrected);
+                        
+                        // Explicit completion signal
+                        console.log('[TAG-AUTO] Extension processing finished - image generation can proceed');
+                        resolve();
                     } catch (error) {
                         console.error('[TAG-AUTO] Error during correction:', error);
                         console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
                         // Don't modify data.prompt - let original prompt through
+                        resolve(); // Still resolve to let image generation continue
                     }
                 } else {
                     console.log('[TAG-AUTO] Skipping correction - extension disabled or no prompt');
+                    resolve();
                 }
+                });
             });
             
             if (extensionSettings.debug) {
