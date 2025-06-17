@@ -11,8 +11,7 @@ const defaultSettings = {
     apiEndpoint: 'http://localhost:8000',
     timeout: 30000, // Increased to 30 seconds
     candidateLimit: 20,
-    debug: false,
-    semanticValidation: true // Enable semantic validation to prevent inappropriate tag selections
+    debug: false
 };
 
 // Profile management constants
@@ -843,23 +842,29 @@ async function selectBestTagWithContext(candidates, originalTag, generationType)
         }
         
         // Validate the selected tag to prevent semantic mismatches
-        const validation = await validateTagSelection(originalTag, selectedTag, candidates);
-        
-        if (!validation.isValid) {
-            console.log(`[TAG-AUTO] Tag selection rejected by validation: "${originalTag}" → "${selectedTag}"`);
+        try {
+            const validation = await validateTagSelection(originalTag, selectedTag, candidates);
             
-            // Try using validation suggestion if available
-            if (validation.suggestion && candidates.includes(validation.suggestion)) {
-                console.log(`[TAG-AUTO] Using validation suggestion: "${validation.suggestion}"`);
-                return validation.suggestion;
+            if (!validation.isValid) {
+                console.log(`[TAG-AUTO] Tag selection rejected by validation: "${originalTag}" → "${selectedTag}"`);
+                
+                // Try using validation suggestion if available
+                if (validation.suggestion && candidates.includes(validation.suggestion)) {
+                    console.log(`[TAG-AUTO] Using validation suggestion: "${validation.suggestion}"`);
+                    return validation.suggestion;
+                }
+                
+                // Fall back to first candidate or original tag
+                console.log(`[TAG-AUTO] Using fallback: first candidate or original tag`);
+                return candidates[0] || originalTag;
             }
             
-            // Fall back to first candidate or original tag
-            console.log(`[TAG-AUTO] Using fallback: first candidate or original tag`);
-            return candidates[0] || originalTag;
+            return selectedTag;
+        } catch (validationError) {
+            console.warn(`[TAG-AUTO] Validation failed for "${originalTag}" → "${selectedTag}":`, validationError);
+            // Fall back to selected tag if validation fails
+            return selectedTag;
         }
-        
-        return selectedTag;
     } catch (error) {
         if (extensionSettings.debug) {
             console.warn('Tag selection failed:', error);
@@ -1187,11 +1192,6 @@ function stripThinkTags(text) {
 
 // Semantic validation function to prevent inappropriate tag selections
 async function validateTagSelection(originalTag, selectedTag, allCandidates, context = '') {
-    // Skip validation if disabled in settings
-    if (!extensionSettings.semanticValidation) {
-        return { isValid: true, reason: 'validation_disabled' };
-    }
-    
     // Skip validation for exact matches or very short tags
     if (originalTag === selectedTag || selectedTag.length <= 3) {
         return { isValid: true, reason: 'exact_match_or_short' };
@@ -2066,33 +2066,6 @@ window.tagAutoStatus = function() {
     console.log('- Profile switch in progress:', profileSwitchInProgress);
 };
 
-// Expose stripThinkTags function globally for testing
-window.tagAutoStripThinkTags = stripThinkTags;
-
-// Test function to verify think tag stripping works
-window.tagAutoTestThinkStripping = function(text) {
-    console.log('Original:', text);
-    const cleanResult = stripThinkTags(text).toUpperCase();
-    console.log('After think removal:', cleanResult);
-    const answer = cleanResult.replace(/[^\w]/g, '');
-    console.log('Final answer:', answer);
-    return answer;
-};
-
-// Test function for semantic validation
-window.tagAutoTestValidation = async function(originalTag, selectedTag, allCandidates = [selectedTag]) {
-    console.log(`[TAG-AUTO] Testing validation for: "${originalTag}" → "${selectedTag}"`);
-    console.log(`[TAG-AUTO] Available candidates: [${allCandidates.join(', ')}]`);
-    
-    try {
-        const result = await validateTagSelection(originalTag, selectedTag, allCandidates);
-        console.log(`[TAG-AUTO] Validation result:`, result);
-        return result;
-    } catch (error) {
-        console.error(`[TAG-AUTO] Validation test failed:`, error);
-        return { isValid: false, reason: 'test_error', error };
-    }
-};
 
 // Initialize the extension
 await init();
