@@ -738,7 +738,7 @@ async function selectBestTagForLastMessage(candidates, originalTag) {
 
     const selectionPrompt = `You must select the BEST danbooru/e621 tag for "${originalTag}" from the provided candidates. Choose the most appropriate tag that matches the visual concept. Do not stop until you have identified the optimal tag choice.
 
-CONTEXT: ${data.prompt}
+CONTEXT: ${window.globalPrompt}
 
 AVAILABLE CANDIDATES: ${candidates.join(', ')}
 
@@ -1307,6 +1307,7 @@ function logProcessingSummary(stats) {
 // Hook into SillyTavern's image generation pipeline
 let originalGetPrompt = null;
 let originalGeneratePicture = null;
+window.globalPrompt = null;
 
 function hookImageGeneration() {
     if (extensionSettings.debug) {
@@ -1344,6 +1345,7 @@ function hookImageGeneration() {
                 
                 if (extensionSettings.enabled && data.prompt) {
                     try {
+                        window.globalPrompt = data.prompt;
                         console.log('[TAG-AUTO] Starting tag correction...');
                         const corrected = await correctTagsWithContext(data.prompt, data.generationType);
                         data.prompt = corrected;
