@@ -330,28 +330,34 @@ function getProcessingStrategy(generationType) {
 
 // Generate fallback search terms using LLM
 async function generateFallbackTerms(originalTag) {
-    const tags = window.globalPrompt
+    // Limit context to prevent environmental pollution
+    const limitedContext = window.globalPrompt
         .split(',')
         .map(tag => tag.trim())
         .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')))
+        .slice(0, 3)  // Only use first 3 other tags to minimize pollution
         .join(', ');
 
-    const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that describe the same visual concept.
+    const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that ONLY relate to the same semantic category and visual concept.
 
-CONTEXT: ${tags}
+LIMITED CONTEXT: ${limitedContext}
 
-Focus on:
-- Core descriptive words (not character names or franchises)
-- Visual elements, poses, lighting, clothing, body parts, etc.
-- Breaking compound tags into meaningful components
+STRICT REQUIREMENTS:
+- Stay within the same semantic category (body→body, pose→pose, clothing→clothing, lighting→lighting)
+- NO environmental terms for body/clothing tags
+- NO body terms for environmental tags  
+- NO object terms for action tags
+- Break compound tags into their meaningful components ONLY
 
 Examples:
 - "bright_lighting" → lighting, light, bright, illumination
+- "pink_nipples" → nipples, nipple, pink, breast
+- "knee_scrape" → knee, scrape, injury, bruise  
+- "hugging_own_knees" → hugging, embrace, knees, sitting
+- "fully_nude" → nude, naked, bare, exposed
 - "steel_walls" → walls, wall, steel, metal
-- "female_character" → female, woman, girl
-- "touching_self" → touching, self, masturbation
 
-Return ONLY a comma-separated list of words. No explanations.`;
+Return ONLY a comma-separated list of semantically consistent words. No explanations.`;
 
     try {
         // Create isolated abort controller to prevent response mixing
@@ -742,16 +748,40 @@ function parseLLMTagSelection(result, candidates) {
     }
     */
     
-    // Step 7: Try partial word matches
+    // Step 7: Try partial word matches (improved semantic matching)
     for (const candidate of candidates) {
+        // Forward match: LLM result contains the candidate (more restrictive)
         if (cleanResult.toLowerCase().includes(candidate.toLowerCase())) {
             console.log(`[TAG-AUTO] Partial match found: "${candidate}"`);
             return candidate;
         }
-        // Also try the reverse - candidate contains the result
-        if (candidate.toLowerCase().includes(cleanResult.toLowerCase()) && cleanResult.length >= 3) {
-            console.log(`[TAG-AUTO] Reverse partial match found: "${candidate}" contains "${cleanResult}"`);
-            return candidate;
+        
+        // Reverse match: Only if LLM result is a clear prefix/suffix of candidate
+        // AND they share significant semantic overlap (same root word)
+        const lowerCandidate = candidate.toLowerCase();
+        const lowerResult = cleanResult.toLowerCase();
+        
+        // Only allow reverse matching if the result is a meaningful subset
+        // and the candidate doesn't add completely different semantic meaning
+        if (lowerCandidate.includes(lowerResult) && cleanResult.length >= 3) {
+            // Additional checks to prevent semantic drift
+            const candidateWords = lowerCandidate.split(/[_\s-]+/);
+            const resultWords = lowerResult.split(/[_\s-]+/);
+            
+            // Check if the result word is actually a base word in the candidate
+            const hasCommonRoot = resultWords.some(resultWord => 
+                candidateWords.some(candidateWord => 
+                    candidateWord.startsWith(resultWord) || resultWord.startsWith(candidateWord)
+                )
+            );
+            
+            // Only allow if there's semantic continuity
+            if (hasCommonRoot) {
+                console.log(`[TAG-AUTO] Semantic reverse match: "${candidate}" extends "${cleanResult}"`);
+                return candidate;
+            } else {
+                console.log(`[TAG-AUTO] Rejected reverse match: "${candidate}" semantically different from "${cleanResult}"`);
+            }
         }
     }
     
@@ -1237,11 +1267,17 @@ EXAMPLES OF INVALID SELECTIONS:
 - "bright_lighting" → "lighting cigarette" (lighting context changed to smoking)
 - "pink_nipples" → "blonde hair" (body part changed to hair color)
 - "indoor" → "white dress" (location changed to clothing)
+- "knee_scrape" → "naked shirt" (injury changed to clothing item)
+- "hugging_own_knees" → "lighting practice" (action changed to lighting context)
+- "fully_nude" → "light bulb" (nudity changed to object)
+- "dropped" → "dropped food" (person falling changed to food falling)
 
 EXAMPLES OF VALID SELECTIONS:
 - "metal_floor" → "floor" (simplified but kept meaning)
 - "shivering" → "trembling" (good synonym)
 - "bare_foot" → "barefoot" (format correction)
+- "wide_eyes" → "wide-eyed" (format correction, same meaning)
+- "hair_over_shoulder" → "hair over shoulder" (underscore to space conversion)
 
 Answer ONLY "VALID" if the selection makes semantic sense, or "INVALID" if it doesn't.
 If INVALID, suggest the best alternative from the candidates list.
