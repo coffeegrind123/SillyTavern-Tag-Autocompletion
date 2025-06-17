@@ -144,6 +144,9 @@ async function withTagProfile(asyncOperation) {
         } catch (error) {
             console.warn('[TAG-AUTO] Failed to restore original profile:', error);
         } finally {
+            // Add extra delay to ensure all async profile operations complete
+            await new Promise(resolve => setTimeout(resolve, 500));
+            console.log('[TAG-AUTO] Profile restoration cleanup completed');
             profileSwitchInProgress = false;
         }
     }
