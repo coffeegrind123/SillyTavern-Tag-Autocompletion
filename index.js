@@ -336,9 +336,8 @@ async function generateFallbackTerms(originalTag) {
         .map(tag => tag.trim())
         .filter(tag => !tag.match(new RegExp(`^${originalTag}$`, 'i')));
     
-    // Use minimal context to prevent category mixing
-    const contextTags = allTags.slice(0, 2);  // Further reduced from 5 to 2 for minimal pollution
-    const limitedContext = contextTags.join(', ');
+    // NO CONTEXT - complete isolation to prevent any pollution
+    const limitedContext = 'none';
 
     const prompt = `For the image tag "${originalTag}", generate 3-4 simpler, more specific search terms that ONLY relate to the same semantic category and visual concept.
 
@@ -346,8 +345,6 @@ PREFERRED FORMATS:
 - Single words: "bright_lighting" → lighting, bright, illumination
 - Two-word compounds: "pink_nipples" → pink nipples, nipple color  
 - AVOID three or more word combinations unless absolutely necessary
-
-RELEVANT CONTEXT: ${limitedContext}
 
 CRITICAL SEMANTIC RULES:
 - NEVER cross semantic boundaries: body parts must stay body parts, lighting must stay lighting, poses must stay poses
