@@ -524,12 +524,11 @@ async function searchTagCandidatesWithFallback(originalTag, limit = 5) {
     return result;
 }
 
-// Direct LLM API call using fetch with SillyTavern profile settings
 async function directLLMCall(prompt) {
     // Get the current context to access settings
     const context = globalContext;
     
-    // Get current profile settings - this should be the tag_autocompletion profile when called from within withTagProfile
+    // Get current profile settings (should be tag_autocompletion profile)
     const oaiSettings = context.chatCompletionSettings || {};
     
     // Debug: Log which profile is being used
@@ -542,7 +541,7 @@ async function directLLMCall(prompt) {
     
     // Build request data based on SillyTavern's format
     const requestData = {
-        stream: false,
+        stream: false, // Explicitly disable streaming if possible
         messages: [{ role: 'user', content: prompt }],
         max_tokens: 50,
         temperature: 0.1,
@@ -555,13 +554,13 @@ async function directLLMCall(prompt) {
     // Determine the endpoint URL based on the completion source
     let endpointUrl;
     if (oaiSettings.chat_completion_source === 'custom') {
-        endpointUrl = oaiSettings.custom_url || 'http://localhost:8080';
+        endpointUrl = oaiSettings.custom_url
         if (!endpointUrl.endsWith('/v1/chat/completions')) {
             endpointUrl = endpointUrl.replace(/\/$/, '') + '/v1/chat/completions';
         }
     } else {
         // For other sources, use reverse proxy or default
-        endpointUrl = oaiSettings.reverse_proxy || 'https://api.openai.com/v1/chat/completions';
+        endpointUrl = oaiSettings.reverse_proxy
     }
     
     // Build headers
@@ -574,9 +573,13 @@ async function directLLMCall(prompt) {
         headers['Authorization'] = `Bearer ${oaiSettings.api_key_openai}`;
     }
     
-    console.log('[TAG-AUTO] Direct LLM call using processRequest');
-    console.log('[TAG-AUTO] Request data:', requestData);
-    
+    console.log('[TAG-AUTO] Starting direct LLM call...');
+    console.log('[TAG-AUTO] Request data:', { 
+        endpointUrl, 
+        model: requestData.model,
+        max_tokens: requestData.max_tokens 
+    });
+
     try {
         const response = await fetch(endpointUrl, {
             method: 'POST',
@@ -588,13 +591,53 @@ async function directLLMCall(prompt) {
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}: ${response.statusText}`);
         }
-        
-        const data = await response.json();
-        console.log('[TAG-AUTO] Direct LLM call result:', data);
-        
-        // Extract content from response
-        const content = extractContentWithThinkTags(data.choices?.[0]?.message?.content || '');
-        return content;
+
+        // Strategy 1: Try reading as JSON first (non-streaming)
+        try {
+            const data = await response.json();
+            console.log('[TAG-AUTO] Direct LLM call (non-streaming) result:', data);
+            const content = data.choices?.[0]?.message?.content || '';
+            return extractContentWithThinkTags(content);
+        } catch (jsonError) {
+            console.log('[TAG-AUTO] Falling back to streaming read...');
+        }
+
+        // Strategy 2: Handle streaming response (if JSON parse fails)
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let chunks = [];
+        let fullContent = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            
+            const chunk = decoder.decode(value);
+            chunks.push(chunk);
+            
+            // Try parsing incremental JSON (for APIs like OpenAI streaming)
+            try {
+                const parsed = JSON.parse(chunks.join(''));
+                if (parsed.choices?.[0]?.delta?.content) {
+                    fullContent += parsed.choices[0].delta.content;
+                }
+            } catch (e) {
+                // Ignore incremental parse errors
+            }
+        }
+
+        // Fallback: If streaming didn't capture content, try full concatenation
+        if (!fullContent && chunks.length > 0) {
+            try {
+                const data = JSON.parse(chunks.join(''));
+                fullContent = data.choices?.[0]?.message?.content || '';
+            } catch (e) {
+                console.error('[TAG-AUTO] Failed to parse streaming chunks:', e);
+            }
+        }
+
+        console.log('[TAG-AUTO] Final LLM content:', fullContent);
+        return extractContentWithThinkTags(fullContent);
         
     } catch (error) {
         console.error('[TAG-AUTO] Direct LLM call failed:', error);
