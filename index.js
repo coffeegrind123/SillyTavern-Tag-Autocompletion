@@ -1437,11 +1437,24 @@ function hookImageGeneration() {
                                 
                                 console.log('[TAG-AUTO] Prompt correction complete!');
                                 console.log('[TAG-AUTO] Final prompt:', corrected);
+                                
+                                // Wait for profile restoration to complete
+                                console.log('[TAG-AUTO] Waiting for profile operations to complete...');
+                                while (profileSwitchInProgress) {
+                                    await new Promise(resolve => setTimeout(resolve, 50));
+                                }
+                                
                                 console.log('[TAG-AUTO] Extension processing finished - image generation can proceed');
-                                resolve(); // Resolve AFTER tag processing completes
+                                resolve(); // Resolve AFTER all operations complete including profile restoration
                             } catch (error) {
                                 console.error('[TAG-AUTO] Error during correction:', error);
                                 console.warn('[TAG-AUTO] Tag correction failed - using original prompt');
+                                
+                                // Wait for profile cleanup even on error
+                                while (profileSwitchInProgress) {
+                                    await new Promise(resolve => setTimeout(resolve, 50));
+                                }
+                                
                                 // Don't modify data.prompt - let original prompt through
                                 resolve(); // Resolve even on error
                             }
